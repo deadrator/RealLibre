@@ -146,7 +146,7 @@ class _PairingScreenState extends State<PairingScreen> with SingleTickerProvider
                   if (errorText != null) ...[
                     const SizedBox(height: 14),
                     Text(
-                      errorText,,
+                      errorText,
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
                     ),

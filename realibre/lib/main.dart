@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:dynamic_color/dynamic_color.dart';
 
+import 'core/platform/method_channels.dart';
 import 'state/bud_controller.dart';
 import 'ui/screens/dashboard_screen.dart';
 import 'ui/screens/pairing_screen.dart';
@@ -44,13 +45,21 @@ class _Home extends StatefulWidget {
 }
 
 class _HomeState extends State<_Home> {
-  bool _connected = false;
+  /// Set when the user completes the manual pairing flow, so the dashboard
+  /// shows immediately even before the CONNECTED event round-trips.
+  bool _manuallyConnected = false;
 
   @override
   void initState() {
     super.initState();
     widget.controller.attach();
     widget.controller.addListener(_onControllerChanged);
+    // Silent auto-connect: when the buds are already bonded (the normal case —
+    // the phone is usually already streaming audio to them), open the control
+    // channel straight away and land on the dashboard. No pairing screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.controller.autoConnect();
+    });
   }
 
   @override
@@ -59,21 +68,31 @@ class _HomeState extends State<_Home> {
     super.dispose();
   }
 
-  /// A dropped socket flips the controller state back to disconnected —
-  /// return to the pairing screen instead of freezing on a dead dashboard.
   void _onControllerChanged() {
-    final connected = widget.controller.isConnected;
-    if (!mounted || connected == _connected) return;
-    setState(() => _connected = connected);
+    if (!mounted) return;
+    if (widget.controller.state == ConnectionState.disconnected ||
+        widget.controller.state == ConnectionState.failed) {
+      _manuallyConnected = false;
+    }
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    return _connected
-        ? DashboardScreen(controller: widget.controller)
+    final controller = widget.controller;
+    final inProgress = controller.state == ConnectionState.connecting ||
+        controller.state == ConnectionState.authenticating;
+    // Dashboard-first: show it while connected, while a (re)connect is in
+    // flight, or right after a successful manual pairing. The pairing screen
+    // is only for the never-paired and failed cases.
+    final showDashboard = controller.isConnected ||
+        _manuallyConnected ||
+        (controller.autoConnectAttempted && inProgress);
+    return showDashboard
+        ? DashboardScreen(controller: controller)
         : PairingScreen(
-            controller: widget.controller,
-            onConnected: () => setState(() => _connected = true),
+            controller: controller,
+            onConnected: () => setState(() => _manuallyConnected = true),
           );
   }
 }

@@ -29,6 +29,11 @@ class BudController extends ChangeNotifier {
   final Set<String> _toggles = {};
   String? _lastError;
   bool _keepAlive = true;
+  bool _autoConnectAttempted = false;
+
+  /// Whether the silent auto-connect has already been tried this session —
+  /// after it runs, the pairing screen is only shown if it failed.
+  bool get autoConnectAttempted => _autoConnectAttempted;
 
   ConnectionState get state => _state;
   BatterySnapshot get battery => _battery;
@@ -60,6 +65,68 @@ class BudController extends ChangeNotifier {
     if (!await _channels.hasPermissions()) await _channels.requestPermissions();
     _keepAlive = await _channels.getKeepAlive();
     notifyListeners();
+  }
+
+  /// Best-effort silent reconnect for the common case: the buds are already
+  /// bonded and usually already streaming audio via the OS Bluetooth stack —
+  /// no pairing dialog needed, so skip the pairing screen entirely.
+  /// Only opens the RFCOMM control channel when the buds are bonded.
+  Future<void> autoConnect() async {
+    if (_autoConnectAttempted) return;
+    _autoConnectAttempted = true;
+    if (!await _channels.hasPermissions()) {
+      await _channels.requestPermissions();
+      // The grant arrives via the system dialog; if it's still pending the
+      // user can connect manually from the pairing screen afterwards.
+      if (!await _channels.hasPermissions()) return;
+    }
+    try {
+      if (!await _channels.isBonded().timeout(_connectStepTimeout)) {
+        return; // never paired — let the pairing screen take over
+      }
+      final ok = await _channels.connect().timeout(
+            _connectStepTimeout,
+            onTimeout: () => false,
+          );
+      if (ok) {
+        _lastError = null;
+        await refreshBattery();
+        await _channels.startBatteryService();
+      }
+      // On failure the state flips to failed/disconnected via the event
+      // channel and the UI falls back to the pairing screen with the reason.
+    } on PlatformException catch (e) {
+      _lastError = e.message ?? e.code;
+      notifyListeners();
+    } on TimeoutException {
+      _lastError = 'Connection timed out';
+      notifyListeners();
+    } catch (_) {
+      // Silent: never block startup on a background reconnect.
+    }
+  }
+
+  /// Manual reconnect from the dashboard after a drop (tap the status bar).
+  Future<void> reconnect() async {
+    try {
+      final ok = await _channels.connect().timeout(
+            _connectStepTimeout,
+            onTimeout: () => false,
+          );
+      if (ok) {
+        _lastError = null;
+        await refreshBattery();
+        await _channels.startBatteryService();
+      }
+    } on PlatformException catch (e) {
+      _lastError = e.message ?? e.code;
+      notifyListeners();
+    } on TimeoutException {
+      _lastError = 'Connection timed out';
+      notifyListeners();
+    } catch (_) {
+      // Non-fatal; the dashboard badge already shows the offline state.
+    }
   }
 
   Future<bool> pairAndConnect() async {

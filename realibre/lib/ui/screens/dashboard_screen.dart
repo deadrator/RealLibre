@@ -21,17 +21,25 @@ class DashboardScreen extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         final state = controller.state;
+        final connected = state == ConnectionState.connected;
         return Scaffold(
           appBar: AppBar(
             title: const Text('RealiBre'),
             backgroundColor: Colors.transparent,
             actions: [
               _ConnectionBadge(state: state),
-              IconButton(
-                tooltip: 'Disconnect',
-                icon: const Icon(Icons.bluetooth_disabled_rounded),
-                onPressed: controller.disconnect,
-              ),
+              if (!connected)
+                IconButton(
+                  tooltip: 'Reconnect',
+                  icon: const Icon(Icons.bluetooth_searching_rounded),
+                  onPressed: controller.reconnect,
+                ),
+              if (connected)
+                IconButton(
+                  tooltip: 'Disconnect',
+                  icon: const Icon(Icons.bluetooth_disabled_rounded),
+                  onPressed: controller.disconnect,
+                ),
             ],
           ),
           body: SafeArea(
@@ -102,6 +110,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
                 GestureDetector(
                   onTap: () {
                     HapticFeedback.selectionClick();
+                    if (!connected) {
+                      controller.reconnect();
+                      return;
+                    }
                     setState(() => _expanded = !_expanded);
                   },
                   child: _BudStatusBar(
@@ -240,7 +252,7 @@ class _BudStatusBar extends StatelessWidget {
                   duration: const Duration(milliseconds: 300),
                   switchInCurve: Curves.easeOutCubic,
                   child: Text(
-                    connected ? '${mode.label} mode' : 'Tap to reconnect in settings',
+                    connected ? '${mode.label} mode' : 'Tap to reconnect',
                     key: ValueKey(connected ? mode.label : 'offline'),
                     style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                   ),
