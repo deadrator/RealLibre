@@ -87,6 +87,18 @@ object RfcommManager {
     )
     val incoming: SharedFlow<Incoming> = _incoming
 
+    /** Wire-level diagnostics (hex dumps, step failures) surfaced to the UI
+     *  so a protocol mismatch can be diagnosed without adb. */
+    private val _debug = MutableSharedFlow<String>(
+        replay = 64, extraBufferCapacity = 256, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val debug: SharedFlow<String> = _debug
+
+    private fun logWire(message: String) {
+        Log.d(TAG, message)
+        _debug.tryEmit(message)
+    }
+
     private var socket: BluetoothSocket? = null
     private var input: InputStream? = null
     private var output: OutputStream? = null
@@ -126,10 +138,10 @@ object RfcommManager {
             withContext(ioDispatcher) {
                 var lastError: Exception? = null
                 // SPP SDP lookup first, then insecure variant, then raw channel 1.
-                val attempts = listOf<() -> BluetoothSocket>(
-                    { device.createRfcommSocketToServiceRecord(uuid) },
-                    { device.createInsecureRfcommSocketToServiceRecord(uuid) },
-                    {
+                val attempts = listOf<Pair<String, () -> BluetoothSocket>>(
+                    "SPP (secure)" to { device.createRfcommSocketToServiceRecord(uuid) },
+                    "SPP (insecure)" to { device.createInsecureRfcommSocketToServiceRecord(uuid) },
+                    "raw channel 1" to {
                         device.javaClass
                             .getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
                             .invoke(device, ProtocolConstants.RFCOMM_CHANNEL) as BluetoothSocket
@@ -141,7 +153,8 @@ object RfcommManager {
                 val dialExecutor = Executor { command ->
                     Thread(command, "rfcomm-dial").apply { isDaemon = true }.start()
                 }
-                for (factory in attempts) {
+                for ((label, factory) in attempts) {
+                    logWire("dialing $label …")
                     var dialSocket: BluetoothSocket? = null
                     val future = CompletableFuture.supplyAsync({
                         dialSocket = factory()
@@ -154,18 +167,19 @@ object RfcommManager {
                         socket = s
                         input = s.inputStream
                         output = s.outputStream
+                        logWire("socket connected via $label")
                         lastError = null
                         break
                     } catch (e: TimeoutException) {
                         future.cancel(true)
                         // Closing the socket aborts the blocked connect() on the dial thread.
                         try { dialSocket?.close() } catch (_: Exception) {}
-                        lastError = IOException("connect timed out after ${ProtocolConstants.CONNECT_TIMEOUT_MS / 1000}s")
-                        Log.w(TAG, "connect attempt timed out")
+                        lastError = IOException("$label timed out after ${ProtocolConstants.CONNECT_TIMEOUT_MS / 1000}s")
+                        logWire("$label timed out")
                     } catch (e: ExecutionException) {
                         try { dialSocket?.close() } catch (_: Exception) {}
                         lastError = e.cause as? Exception ?: IOException(e.cause)
-                        Log.w(TAG, "connect attempt failed", e.cause)
+                        logWire("$label failed: ${lastError?.message}")
                     }
                     closeSocketQuietly()
                 }
@@ -196,16 +210,33 @@ object RfcommManager {
         startReader(session)
     }
 
-    /** Cmd 0x01 → verify → Cmd 0x02 → expect Cmd 0x02 confirm. */
+    /** Cmd 0x01 → verify → Cmd 0x02 → expect Cmd 0x02 confirm.
+     *  Every step is wire-logged; failures carry the raw bytes so a wrong
+     *  protocol assumption (magic, CRC, command IDs) is diagnosable in-app. */
     private fun runHandshake() {
         val clientRandom = HmacAuth.newClientChallenge()
         writeRaw(FrameBuilder.build(ProtocolConstants.CMD_AUTH_CHALLENGE, nextSeq(), clientRandom))
 
-        val reply = FrameBuilder.readFrame(input ?: throw IOException("stream lost"))
-        if (reply.command != ProtocolConstants.CMD_AUTH_CHALLENGE) {
-            throw HmacAuth.AuthException("expected Cmd 0x01 reply, got 0x%02X".format(reply.command))
+        val reply = try {
+            FrameBuilder.readFrame(input ?: throw IOException("stream lost")) { logWire("← $it") }
+        } catch (e: EOFException) {
+            throw HmacAuth.AuthException(
+                "buds closed the stream during the Cmd 0x01 exchange — " +
+                    "they never answered the RMV-framed challenge (protocol data may be wrong)",
+            )
+        } catch (e: FrameBuilder.FrameException) {
+            throw HmacAuth.AuthException("${e.message} — buds speak a different frame format")
         }
-        val earbudRandom = HmacAuth.verifyChallengeReply(reply.payload, clientRandom)
+        if (reply.command != ProtocolConstants.CMD_AUTH_CHALLENGE) {
+            throw HmacAuth.AuthException(
+                "expected Cmd 0x01 reply, got 0x%02X (payload %s)".format(reply.command, reply.payload.toHexString()),
+            )
+        }
+        val earbudRandom = try {
+            HmacAuth.verifyChallengeReply(reply.payload, clientRandom)
+        } catch (e: HmacAuth.AuthException) {
+            throw HmacAuth.AuthException("${e.message} (reply payload ${reply.payload.toHexString()})")
+        }
 
         writeRaw(
             FrameBuilder.build(
@@ -215,10 +246,19 @@ object RfcommManager {
             )
         )
 
-        val confirm = FrameBuilder.readFrame(input ?: throw IOException("stream lost"))
-        if (confirm.command != ProtocolConstants.CMD_AUTH_RESPONSE) {
-            throw HmacAuth.AuthException("expected Cmd 0x02 confirm, got 0x%02X".format(confirm.command))
+        val confirm = try {
+            FrameBuilder.readFrame(input ?: throw IOException("stream lost")) { logWire("← $it") }
+        } catch (e: EOFException) {
+            throw HmacAuth.AuthException("buds closed the stream awaiting the Cmd 0x02 confirm")
+        } catch (e: FrameBuilder.FrameException) {
+            throw HmacAuth.AuthException("${e.message} — buds speak a different frame format")
         }
+        if (confirm.command != ProtocolConstants.CMD_AUTH_RESPONSE) {
+            throw HmacAuth.AuthException(
+                "expected Cmd 0x02 confirm, got 0x%02X".format(confirm.command),
+            )
+        }
+        logWire("handshake complete — session unlocked")
     }
 
     private fun startReader(session: Long) {
@@ -228,7 +268,7 @@ object RfcommManager {
             try {
                 while (isConnected && isActive) {
                     val frame = try {
-                        FrameBuilder.readFrame(stream)
+                        FrameBuilder.readFrame(stream) { logWire("← $it") }
                     } catch (e: java.io.EOFException) {
                         break
                     } catch (e: Exception) {
@@ -302,6 +342,7 @@ object RfcommManager {
     /** The only sanctioned outbound path: framed + CRC'd. */
     private fun writeRaw(bytes: ByteArray) {
         val out = output ?: throw IOException("socket not connected")
+        logWire("→ ${bytes.toHexString(48)}")
         synchronized(out) {
             out.write(bytes)
             out.flush()

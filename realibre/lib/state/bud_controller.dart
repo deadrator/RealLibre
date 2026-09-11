@@ -31,6 +31,12 @@ class BudController extends ChangeNotifier {
   bool _keepAlive = true;
   bool _autoConnectAttempted = false;
 
+  /// Ring buffer of native wire-debug lines (hex frames, handshake steps)
+  /// shown on the dashboard's debug console — diagnosing a wrong protocol
+  /// assumption should not require adb/logcat.
+  final List<String> _debugLines = [];
+  List<String> get debugLines => List.unmodifiable(_debugLines);
+
   /// Whether the silent auto-connect has already been tried this session —
   /// after it runs, the pairing screen is only shown if it failed.
   bool get autoConnectAttempted => _autoConnectAttempted;
@@ -57,6 +63,10 @@ class BudController extends ChangeNotifier {
     if (event.state != null) _state = event.state!;
     if (event.battery != null) _battery = event.battery!;
     if (event.error != null) _lastError = event.error;
+    if (event.debugLine != null) {
+      _debugLines.add(event.debugLine!);
+      if (_debugLines.length > 80) _debugLines.removeRange(0, _debugLines.length - 80);
+    }
     notifyListeners();
   }
 

@@ -28,6 +28,11 @@ class DashboardScreen extends StatelessWidget {
             backgroundColor: Colors.transparent,
             actions: [
               _ConnectionBadge(state: state),
+              IconButton(
+                tooltip: 'Debug log',
+                icon: const Icon(Icons.bug_report_outlined),
+                onPressed: () => _showDebugLog(context, controller),
+              ),
               if (!connected)
                 IconButton(
                   tooltip: 'Reconnect',
@@ -44,6 +49,93 @@ class DashboardScreen extends StatelessWidget {
           ),
           body: SafeArea(
             child: _DashboardBody(controller: controller, state: state),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Live wire log from the native stack: every frame sent/received (hex),
+  /// every dial attempt and handshake step. This is how we find out whether
+  /// the documented protocol actually matches the real buds.
+  void _showDebugLog(BuildContext context, BudController controller) {
+    HapticFeedback.selectionClick();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) => DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.6,
+            maxChildSize: 0.9,
+            builder: (context, scrollController) => Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Row(
+                    children: [
+                      Icon(Icons.terminal_rounded, size: 18, color: Theme.of(sheetContext).colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Wire debug — RFCOMM frames',
+                          style: Theme.of(sheetContext).textTheme.titleSmall,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                if (controller.lastError != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      controller.lastError!,
+                      style: Theme.of(sheetContext)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: Theme.of(sheetContext).colorScheme.error),
+                    ),
+                  ),
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(sheetContext).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: controller.debugLines.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No wire traffic yet — reconnect to capture frames',
+                              style: Theme.of(sheetContext).textTheme.bodySmall,
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: scrollController,
+                            itemCount: controller.debugLines.length,
+                            itemBuilder: (context, i) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: SelectableText(
+                                controller.debugLines[i],
+                                style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
+                                      fontFamily: 'monospace',
+                                      height: 1.3,
+                                    ),
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },

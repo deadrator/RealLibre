@@ -39,10 +39,11 @@ class BatterySnapshot {
 }
 
 class BudTelemetryEvent {
-  const BudTelemetryEvent({this.battery, this.error, this.state});
+  const BudTelemetryEvent({this.battery, this.error, this.state, this.debugLine});
   final BatterySnapshot? battery;
   final String? error;
   final ConnectionState? state;
+  final String? debugLine;
 }
 
 class BudChannels {
@@ -72,6 +73,8 @@ class BudChannels {
               return BudTelemetryEvent(battery: BatterySnapshot.fromMap(map));
             case 'error':
               return BudTelemetryEvent(error: (map?['message'] as String?) ?? 'unknown error');
+            case 'debug':
+              return BudTelemetryEvent(debugLine: (map?['line'] as String?) ?? '');
             default:
               return const BudTelemetryEvent();
           }

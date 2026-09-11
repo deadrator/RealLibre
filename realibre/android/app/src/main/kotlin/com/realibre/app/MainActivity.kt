@@ -54,6 +54,11 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     collectors += scope.launch {
+                        RfcommManager.debug.collect { line ->
+                            sink?.success(mapOf("type" to "debug", "line" to line))
+                        }
+                    }
+                    collectors += scope.launch {
                         RfcommManager.incoming.collect { ev ->
                             when (ev) {
                                 is RfcommManager.Incoming.BatteryLevel -> sink?.success(
@@ -127,7 +132,11 @@ class MainActivity : FlutterActivity() {
                     } catch (e: Exception) {
                         // Always answer, even on unexpected throwables: a
                         // missing reply is what leaves the UI spinner stuck.
-                        result.error("CONNECT_FAILED", e.message ?: e.javaClass.simpleName, null)
+                        val message = listOf(e.message, e.cause?.message)
+                            .filterNotNull()
+                            .joinToString(" — ")
+                            .ifEmpty { e.javaClass.simpleName }
+                        result.error("CONNECT_FAILED", message, null)
                     }
                 }
 

@@ -5,6 +5,17 @@ import java.io.EOFException
 import java.io.IOException
 import java.nio.ByteBuffer
 
+/** Hex dump helper for wire logging (capped so logcat stays readable). */
+fun ByteArray.toHexString(limit: Int = 64): String = buildString {
+    append('[')
+    for (i in 0 until minOf(size, limit)) {
+        if (i > 0) append(' ')
+        append((this@toHexString[i].toInt() and 0xFF).toString(16).padStart(2, '0'))
+    }
+    if (size > limit) append(" …(+${size - limit})")
+    append(']')
+}
+
 /**
  * Assembles and parses "RMV" frames:
  *
@@ -98,26 +109,38 @@ object FrameBuilder {
      * Convenience for reading a framed reply off a stream: reads until a full,
      * CRC-valid frame is available, or throws [FrameException] on EOF/garbage.
      * Non-magic leading bytes are skipped (some chipsets emit event noise).
+     *
+     * [sniff] receives one debug line per read — junk bytes seen before the
+     * magic and the raw frame hex — for diagnosing protocol mismatches.
      */
-    fun readFrame(input: java.io.InputStream): Frame {
+    fun readFrame(input: java.io.InputStream, sniff: ((String) -> Unit)? = null): Frame {
+        val junk = StringBuilder()
         val header = ByteArray(ProtocolConstants.HEADER_SIZE)
         var magicPos = 0
         // Skip junk until we see the full magic sequence.
         while (magicPos < MAGIC.size) {
             val b = input.read()
-            if (b == -1) throw EOFException("stream ended while waiting for magic")
+            if (b == -1) {
+                sniff?.invoke("EOF waiting for magic (skipped ${junk.length} junk bytes)")
+                throw EOFException("stream ended while waiting for magic")
+            }
             if (b == MAGIC[magicPos].toInt() and 0xFF) {
                 header[magicPos] = b.toByte()
                 magicPos++
             } else {
+                if (junk.length < 96) junk.append("%02X ".format(b))
                 // Re-scan from the start; a stray magic byte is handled next loop.
                 magicPos = if (b == MAGIC[0].toInt() and 0xFF) 1 else 0
             }
         }
+        if (junk.isNotEmpty()) sniff?.invoke("skipped non-magic bytes: $junk")
         // Read remaining fixed header (command, sequence, length).
         while (magicPos < ProtocolConstants.HEADER_SIZE) {
-            val b = input.read() 
-            if (b == -1) throw EOFException("stream ended inside header")
+            val b = input.read()
+            if (b == -1) {
+                sniff?.invoke("EOF inside header")
+                throw EOFException("stream ended inside header")
+            }
             header[magicPos] = b.toByte()
             magicPos++
         }
@@ -128,9 +151,18 @@ object FrameBuilder {
         var off = ProtocolConstants.HEADER_SIZE
         while (off < total) {
             val n = input.read(buf, off, total - off)
-            if (n == -1) throw EOFException("stream ended inside payload/CRC")
+            if (n == -1) {
+                sniff?.invoke("EOF inside payload/CRC (got $off of $total bytes)")
+                throw EOFException("stream ended inside payload/CRC")
+            }
             off += n
         }
-        return parse(buf)
+        val frame = parse(buf)
+        sniff?.invoke(
+            "cmd=0x%02X seq=0x%02X len=%d raw=%s".format(
+                frame.command, frame.sequence, frame.payload.size, buf.toHexString(48),
+            ),
+        )
+        return frame
     }
 }
