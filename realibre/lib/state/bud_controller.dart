@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/services.dart';
 
@@ -18,7 +20,7 @@ class BudController extends ChangeNotifier {
   BatterySnapshot _battery = const BatterySnapshot(left: 0, right: 0, caseLevel: 0, source: 'rfcomm');
   NoiseMode _noiseMode = NoiseMode.off;
   AncLevel _ancLevel = AncLevel.moderate;
-  EqMode _eqMode = EqMode.Default_;
+  EqMode _eqMode = EqMode.defaultMode;
   final Set<String> _toggles = {};
   String? _lastError;
   bool _keepAlive = true;

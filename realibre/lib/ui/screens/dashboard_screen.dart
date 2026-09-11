@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import '../../core/platform/method_channels.dart';
 import '../../state/bud_controller.dart';
 import '../theme/app_theme.dart';
-import '../widgets/battery_card.dart';
 import '../widgets/noise_control_selector.dart';
 import '../widgets/sound_effects_card.dart';
 

@@ -17,8 +17,6 @@ class BatteryCard extends StatelessWidget {
   final VoidCallback? onRefresh;
   final VoidCallback? onPopup;
 
-  static const _animDuration = Duration(milliseconds: 400);
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -96,6 +94,8 @@ class _Cell extends StatelessWidget {
   final String label;
   final int value;
   final Color accent;
+
+  static const _animDuration = Duration(milliseconds: 400);
 
   @override
   Widget build(BuildContext context) {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../core/constants/bud_enums.dart';
+import '../../core/constants/bud_enums.dart';
 
 /// Material 3 theme with dynamic color (Android 12+) and a dark
 /// "midnight driver" fallback palette tuned for a buds companion app.
@@ -34,9 +34,6 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      sliderTheme: const SliderThemeData(
-        year2023: false,
       ),
       segmentedButtonTheme: SegmentedButtonThemeData(
         style: ButtonStyle(
