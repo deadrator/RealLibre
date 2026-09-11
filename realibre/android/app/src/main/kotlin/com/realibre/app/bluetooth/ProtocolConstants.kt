@@ -1,17 +1,24 @@
 package com.realibre.app.bluetooth
 
 /**
- * Single source of truth for the wire protocol spoken by the Realme Buds T310.
+ * Wire protocol for the Realme Buds T310 — the Oppo/Realme "HeyThings"
+ * SPP protocol, reverse-engineered by the Gadgetbridge project
+ * (Freeyourgadget/Gadgetbridge, AGPL — protocol details only, no code copied).
  *
- * Every command is framed as:
+ * Frame layout (all multi-byte fields LITTLE endian):
  * ```
- * [0..2]  magic "RMV" (0x52 0x4D 0x56)
- * [3]     command type
- * [4]     sequence number (wraps 0x00-0xFF)
- * [5..6]  payload length, uint16 big endian
- * [7..N]  payload
- * [N+1..N+2] CRC16, uint16 big endian
+ * [0]      preamble 0xAA
+ * [1]      total length (bytes after this one, i.e. frame size - 2)
+ * [2..3]   zero (0x0000; some devices use 0x0004)
+ * [4..5]   command code (uint16 LE)
+ * [6]      sequence number (wraps)
+ * [7..8]   payload length (uint16 LE)
+ * [9..N]   payload
  * ```
+ *
+ * There is NO CRC and NO authentication handshake on this protocol — the
+ * earlier "RMV + CRC16 + HMAC" spec did not match the real firmware and the
+ * buds silently ignored those frames.
  */
 object ProtocolConstants {
     // Transport
@@ -20,71 +27,52 @@ object ProtocolConstants {
     const val RFCOMM_CHANNEL: Int = 1
     const val MAX_MTU: Int = 990
 
-    // [0..2] magic header "RMV"
-    val MAGIC: ByteArray = byteArrayOf(0x52, 0x4D, 0x56)
-
-    // Frame offsets
-    const val OFFSET_MAGIC: Int = 0
-    const val OFFSET_COMMAND: Int = 3
-    const val OFFSET_SEQUENCE: Int = 4
-    const val OFFSET_LENGTH: Int = 5
-    const val OFFSET_PAYLOAD: Int = 7
-    const val HEADER_SIZE: Int = 7
-    const val CRC_SIZE: Int = 2
-
-    // Command types
-    const val CMD_AUTH_CHALLENGE: Int = 0x01
-    const val CMD_AUTH_RESPONSE: Int = 0x02
-    const val CMD_STATUS_QUERY: Int = 0x03
-    const val CMD_ATTR_SET: Int = 0x04
-
-    // Auth handshake sizes
-    const val CHALLENGE_SIZE: Int = 16
-    const val HMAC_SIZE: Int = 32
-    const val AUTH_STATUS_OFFSET: Int = 0
-    const val AUTH_SIG_OFFSET: Int = 1
-    const val AUTH_EARBUD_RANDOM_OFFSET: Int = 33
-
-    // Shared secret (per spec) used as HMAC-SHA256 key.
-    val HMAC_KEY: ByteArray = "hmac_key".toByteArray(Charsets.UTF_8)
-
-    // Cmd 0x04 payload layout: [Length=0x02, Attr_ID, Value]
-    const val ATTR_PAYLOAD_LENGTH: Int = 0x02
-
-    // Attribute IDs (Cmd 0x04)
-    const val ATTR_NOISE_CONTROL: Int = 0x05
-    const val ATTR_ANC_SUB_LEVEL: Int = 0x14
-    const val ATTR_GAMING: Int = 0x06
-    const val ATTR_SPATIAL_AUDIO: Int = 0x10
-    const val ATTR_EQ_MODE: Int = 0x0A
-    const val ATTR_VOLUME_ENHANCER: Int = 0x0E
-    const val ATTR_WIND_NOISE: Int = 0x12
-    const val ATTR_ENHANCE_VOICES: Int = 0x13
-    const val ATTR_MULTIPOINT: Int = 0x09
-    const val ATTR_FIT_TEST: Int = 0x15
-
-    // Noise control values (Attr 0x05)
-    const val NOISE_OFF: Int = 0x00
-    const val NOISE_ANC: Int = 0x01
-    const val NOISE_TRANSPARENCY: Int = 0x02
-
-    // ANC sub-level values (Attr 0x14)
-    const val ANC_LEVEL_MILD: Int = 0x00
-    const val ANC_LEVEL_MODERATE: Int = 0x01
-    const val ANC_LEVEL_DEEP: Int = 0x02
-
-    // EQ mode values (Attr 0x0A)
-    const val EQ_DEFAULT: Int = 0x00
-    const val EQ_BASS_BOOST: Int = 0x01
-    const val EQ_CLEAR_BASS: Int = 0x02
-    const val EQ_CLEAR_VOCALS: Int = 0x03
-
-    // Battery indices for Cmd 0x03 status payload
-    const val BATTERY_LEFT: Int = 0
-    const val BATTERY_RIGHT: Int = 1
-    const val BATTERY_CASE: Int = 2
+    // Frame
+    const val PREAMBLE: Int = 0xAA
+    const val HEADER_SIZE: Int = 9 // preamble..payloadLen inclusive
 
     // Timeouts so a silent bud can never wedge the UI (ms).
     const val CONNECT_TIMEOUT_MS: Long = 12_000L
-    const val HANDSHAKE_TIMEOUT_MS: Long = 8_000L
+    const val RESPONSE_TIMEOUT_MS: Long = 4_000L
+
+    // Command codes (uint16 LE). Requests 0x0xxx are answered by 0x8xxx RETs;
+    // SET commands are answered by ACKs.
+    const val CMD_BATTERY_REQ: Int = 0x0106
+    const val CMD_BATTERY_RET: Int = 0x8106
+    const val CMD_SUBSCRIPTION_SET: Int = 0x0205
+    const val CMD_SUBSCRIPTION_ACK: Int = 0x8205
+    const val CMD_SUBSCRIPTION_RET: Int = 0x0204
+    const val CMD_FIRMWARE_GET: Int = 0x0105
+    const val CMD_FIRMWARE_RET: Int = 0x8105
+    const val CMD_TOUCH_CONFIG_REQ: Int = 0x0108
+    const val CMD_TOUCH_CONFIG_RET: Int = 0x8108
+    const val CMD_FIND_DEVICE_REQ: Int = 0x0400
+    const val CMD_FIND_DEVICE_ACK: Int = 0x8400
+    const val CMD_MISC_CONFIG_SET: Int = 0x0403
+    const val CMD_MISC_CONFIG_REQ: Int = 0x010D
+    const val CMD_MISC_CONFIG_ACK: Int = 0x8403
+    const val CMD_MISC_CONFIG_RET: Int = 0x810D
+    const val CMD_ANC_CONFIG_SET: Int = 0x0404
+    const val CMD_ANC_CONFIG_REQ: Int = 0x010C
+    const val CMD_ANC_CONFIG_ACK: Int = 0x8404
+    const val CMD_ANC_CONFIG_RET: Int = 0x810C
+
+    // ANC config types (first payload byte of ANC_CONFIG_*)
+    const val ANC_TYPE_MODE: Int = 0x01
+    const val ANC_TYPE_TOUCH_CYCLE_MODES: Int = 0x02
+
+    // ANC mode values (MODE). NOTE: not 0/1/2 — 0x01=off, 0x02=transparency, 0x08=ANC.
+    const val ANC_OFF: Int = 0x01
+    const val ANC_TRANSPARENCY: Int = 0x02
+    const val ANC_ON: Int = 0x08
+
+    // Subscription types (SUBSCRIPTION_SET payload lists these)
+    const val SUB_BATTERY: Int = 0x01
+    const val SUB_STATUS: Int = 0x02
+    const val SUB_ANC_SELECTOR: Int = 0x03
+    const val SUB_GAME_MODE: Int = 0x05
+
+    // Misc config types (MISC_CONFIG_SET payload: [type, value])
+    const val MISC_GAME_MODE: Int = 0x06
+    const val MISC_MULTIPOINT: Int = 0x11
 }

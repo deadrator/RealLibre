@@ -33,7 +33,7 @@ class NoiseControlSelector extends StatelessWidget {
           children: [
             Text('Noise control', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            Text('Attr 0x05', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            Text('ANC_CONFIG_SET · MODE', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(height: 14),
             // Animated mode art: crossfade + slide between the three modes.
             SizedBox(

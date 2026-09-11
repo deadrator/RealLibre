@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../core/constants/bud_enums.dart';
 import '../../state/bud_controller.dart';
 
-/// Sound & effects card: EQ presets plus every Attr 0x04 boolean toggle.
-/// Each switch gives haptic feedback and animates on state change.
+/// Device features card: the toggles the real protocol actually supports
+/// (game mode, multipoint) plus the find-my-buds tone.
 class SoundEffectsCard extends StatelessWidget {
   const SoundEffectsCard({super.key, required this.controller});
 
@@ -14,6 +13,7 @@ class SoundEffectsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final connected = controller.isConnected;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -22,78 +22,30 @@ class SoundEffectsCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Sound & effects', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            Text('Device features', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            Text('Cmd 0x04 ATTR_SET', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            Text('Oppo/Realme protocol — misc config', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(height: 12),
-            // EQ selector
-            SizedBox(
-              width: double.infinity,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final eq in EqMode.values)
-                    ChoiceChip(
-                      label: Text(eq.label),
-                      selected: controller.eqMode == eq,
-                      onSelected: (_) {
-                        HapticFeedback.selectionClick();
-                        controller.setEqMode(eq);
-                      },
-                    ),
-                ],
-              ),
-            ),
-            const Divider(height: 24),
             _SwitchTile(
               icon: Icons.videogame_asset_rounded,
-              label: 'Gaming mode',
-              subtitle: 'Low latency (0x06)',
-              value: controller.isToggleOn('gaming'),
-              onChanged: (v) => controller.setToggle('gaming', v),
-            ),
-            _SwitchTile(
-              icon: Icons.view_in_ar_rounded,
-              label: 'Spatial audio (360°)',
-              subtitle: 'Head tracking soundstage (0x10)',
-              value: controller.isToggleOn('spatial'),
-              onChanged: (v) => controller.setToggle('spatial', v),
-            ),
-            _SwitchTile(
-              icon: Icons.volume_up_rounded,
-              label: 'Volume enhancer',
-              subtitle: 'Gain boost (0x0E)',
-              value: controller.isToggleOn('volumeEnhancer'),
-              onChanged: (v) => controller.setToggle('volumeEnhancer', v),
-            ),
-            _SwitchTile(
-              icon: Icons.air_rounded,
-              label: 'Wind noise reduction',
-              subtitle: 'Outdoor calls (0x12)',
-              value: controller.isToggleOn('windNoise'),
-              onChanged: (v) => controller.setToggle('windNoise', v),
-            ),
-            _SwitchTile(
-              icon: Icons.record_voice_over_rounded,
-              label: 'Enhance voices',
-              subtitle: 'Transparency sub-option (0x13)',
-              value: controller.isToggleOn('enhanceVoices'),
-              onChanged: (v) => controller.setToggle('enhanceVoices', v),
+              label: 'Game mode',
+              subtitle: 'Low latency audio',
+              value: controller.gameMode,
+              onChanged: connected ? (v) => controller.setGameMode(v) : null,
             ),
             _SwitchTile(
               icon: Icons.phonelink_ring_rounded,
               label: 'Multipoint',
-              subtitle: 'Dual device connection (0x09)',
-              value: controller.isToggleOn('multipoint'),
-              onChanged: (v) => controller.setToggle('multipoint', v),
+              subtitle: 'Dual device connection',
+              value: controller.multipoint,
+              onChanged: connected ? (v) => controller.setMultipoint(v) : null,
             ),
             _SwitchTile(
-              icon: Icons.checkroom_rounded,
-              label: 'Fit sweep test',
-              subtitle: 'One-shot tone sweep (0x15)',
+              icon: Icons.location_searching_rounded,
+              label: 'Find my buds',
+              subtitle: 'Play locator tone',
               value: false,
-              onChanged: (_) => controller.setToggle('fitTest', true),
+              onChanged: connected ? (_) => controller.findDevice() : null,
             ),
           ],
         ),
@@ -115,7 +67,7 @@ class _SwitchTile extends StatelessWidget {
   final String label;
   final String subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +100,7 @@ class _SwitchTile extends StatelessWidget {
           ),
           Switch(value: value, onChanged: (v) {
             HapticFeedback.lightImpact();
-            onChanged(v);
+            onChanged?.call(v);
           }),
         ],
       ),

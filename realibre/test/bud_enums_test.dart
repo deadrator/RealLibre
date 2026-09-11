@@ -32,7 +32,7 @@ void main() {
 
   group('BudTelemetry model', () {
     test('parses map and flags coarse sources', () {
-      final t = BudTelemetry.fromMap({
+      final t = BudTelemetry.fromMap(const {
         'left': 81,
         'right': 66,
         'case': 42,
@@ -43,7 +43,7 @@ void main() {
       expect(t.caseLevel, 42);
       expect(t.isCoarse, isTrue);
 
-      final rf = BudTelemetry.fromMap({'left': 1, 'right': 2, 'case': 3});
+      final rf = BudTelemetry.fromMap(const {'left': 1, 'right': 2, 'case': 3});
       expect(rf.isCoarse, isFalse);
     });
 
@@ -53,32 +53,24 @@ void main() {
     });
   });
 
-  group('bud enums', () {
-    test('noise mode wire values match protocol spec', () {
-      expect(NoiseMode.off.value, 0x00);
-      expect(NoiseMode.anc.value, 0x01);
+  group('bud enums (real Oppo/Realme protocol values)', () {
+    test('noise mode wire values match the real protocol', () {
+      // 0x01=off, 0x02=transparency, 0x08=ANC — NOT the 0/1/2 from the old spec.
+      expect(NoiseMode.off.value, 0x01);
       expect(NoiseMode.transparency.value, 0x02);
+      expect(NoiseMode.anc.value, 0x08);
+      expect(NoiseMode.fromValue(8), NoiseMode.anc);
       expect(NoiseMode.fromValue(2), NoiseMode.transparency);
+      expect(NoiseMode.fromValue(1), NoiseMode.off);
     });
 
-    test('EQ mode wire values match protocol spec', () {
-      expect(EqMode.defaultMode.value, 0x00);
-      expect(EqMode.bassBoost.value, 0x01);
-      expect(EqMode.clearBass.value, 0x02);
-      expect(EqMode.clearVocals.value, 0x03);
+    test('unknown values fall back to off, not throw', () {
+      expect(NoiseMode.fromValue(0x99), NoiseMode.off);
     });
 
-    test('attribute IDs match ProtocolConstants.kt table', () {
-      expect(AttrId.noiseControl, 0x05);
-      expect(AttrId.gaming, 0x06);
-      expect(AttrId.multipoint, 0x09);
-      expect(AttrId.eqMode, 0x0A);
-      expect(AttrId.volumeEnhancer, 0x0E);
-      expect(AttrId.spatialAudio, 0x10);
-      expect(AttrId.windNoise, 0x12);
-      expect(AttrId.enhanceVoices, 0x13);
-      expect(AttrId.ancSubLevel, 0x14);
-      expect(AttrId.fitTest, 0x15);
+    test('game + multipoint flags', () {
+      expect(GameMode.on.value, 0x01);
+      expect(MultipointMode.on.value, 0x01);
     });
   });
 
@@ -91,33 +83,21 @@ void main() {
   });
 
   group('widgets', () {
-    testWidgets('dashboard renders compact status bar with battery', (tester) async {
+    testWidgets('dashboard renders status bar', (tester) async {
       budChannelsInstance = _StubChannels();
-      final controller = BudController();
-      addTearDown(controller.dispose);
+      final controller = BudController(channels: _StubChannels());
       await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.dark(null),
-          home: DashboardScreen(controller: controller),
-        ),
+        MaterialApp(home: DashboardScreen(controller: controller)),
       );
-      await tester.pumpAndSettle();
       expect(find.text('Realme Buds T310'), findsOneWidget);
-      expect(find.text('Battery'), findsNothing); // settings collapsed by default
-      expect(find.byType(DashboardScreen), findsOneWidget);
     });
 
-    testWidgets('pairing screen shows device info and CTA', (tester) async {
+    testWidgets('pairing screen renders device info', (tester) async {
       budChannelsInstance = _StubChannels();
-      final controller = BudController();
-      addTearDown(controller.dispose);
+      final controller = BudController(channels: _StubChannels());
       await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.dark(null),
-          home: PairingScreen(controller: controller, onConnected: () {}),
-        ),
+        MaterialApp(home: PairingScreen(controller: controller, onConnected: () {})),
       );
-      await tester.pump(const Duration(milliseconds: 100));
       expect(find.text('Realme Buds T310'), findsOneWidget);
       expect(find.text('Pair & connect'), findsOneWidget);
     });

@@ -1,11 +1,10 @@
 package com.realibre.app.bluetooth
 
-import java.io.ByteArrayOutputStream
 import java.io.EOFException
 import java.io.IOException
-import java.nio.ByteBuffer
+import java.io.InputStream
 
-/** Hex dump helper for wire logging (capped so logcat stays readable). */
+/** Hex dump helper for wire logging (capped so the UI stays readable). */
 fun ByteArray.toHexString(limit: Int = 64): String = buildString {
     append('[')
     for (i in 0 until minOf(size, limit)) {
@@ -17,19 +16,19 @@ fun ByteArray.toHexString(limit: Int = 64): String = buildString {
 }
 
 /**
- * Assembles and parses "RMV" frames:
+ * Assembles and parses Oppo/Realme 0xAA frames:
  *
  * ```
- * [0..2]      magic 0x52 0x4D 0x56 ("RMV")
- * [3]         command type
- * [4]         sequence number
- * [5..6]      payload length (uint16 BE)
- * [7..N]      payload
- * [N+1..N+2]  CRC16 (uint16 BE) over bytes [0..N]
+ * [0]      preamble 0xAA
+ * [1]      total length (frame size - 2)
+ * [2..3]   zero
+ * [4..5]   command code (uint16 LE)
+ * [6]      sequence number
+ * [7..8]   payload length (uint16 LE)
+ * [9..N]   payload
  * ```
  *
- * CRC covers the header (magic + command + sequence + length) and the payload,
- * not the CRC bytes themselves.
+ * No CRC, no auth — a frame is validated by preamble + length consistency.
  */
 object FrameBuilder {
 
@@ -48,28 +47,29 @@ object FrameBuilder {
     /** Thrown when a received buffer is not a valid frame. */
     class FrameException(message: String) : IOException(message)
 
-    private val MAGIC: ByteArray = ProtocolConstants.MAGIC
+    private val seqCounter = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun nextSequence(): Int = seqCounter.incrementAndGet() and 0xFF
 
     /** Build a complete framed packet ready to write to the RFCOMM socket. */
     fun build(command: Int, sequence: Int, payload: ByteArray = ByteArray(0)): ByteArray {
-        require(command in 0..0xFF) { "command out of range" }
+        require(command in 0..0xFFFF) { "command out of range" }
         require(sequence in 0..0xFF) { "sequence out of range" }
-        require(payload.size <= ProtocolConstants.MAX_MTU - ProtocolConstants.HEADER_SIZE - ProtocolConstants.CRC_SIZE) {
+        require(payload.size <= ProtocolConstants.MAX_MTU - ProtocolConstants.HEADER_SIZE) {
             "payload exceeds MTU budget"
         }
 
-        val length = payload.size
-        val frame = ByteArray(ProtocolConstants.HEADER_SIZE + length + ProtocolConstants.CRC_SIZE)
-        MAGIC.copyInto(frame, ProtocolConstants.OFFSET_MAGIC)
-        frame[ProtocolConstants.OFFSET_COMMAND] = command.toByte()
-        frame[ProtocolConstants.OFFSET_SEQUENCE] = sequence.toByte()
-        frame[ProtocolConstants.OFFSET_LENGTH] = ((length ushr 8) and 0xFF).toByte()
-        frame[ProtocolConstants.OFFSET_LENGTH + 1] = (length and 0xFF).toByte()
-        payload.copyInto(frame, ProtocolConstants.OFFSET_PAYLOAD)
-
-        val crc = Crc16.compute(frame, 0, ProtocolConstants.HEADER_SIZE + length)
-        frame[frame.size - 2] = ((crc ushr 8) and 0xFF).toByte()
-        frame[frame.size - 1] = (crc and 0xFF).toByte()
+        val frame = ByteArray(ProtocolConstants.HEADER_SIZE + payload.size)
+        frame[0] = ProtocolConstants.PREAMBLE.toByte()
+        frame[1] = (frame.size - 2).toByte() // total length excludes preamble + length byte
+        frame[2] = 0x00
+        frame[3] = 0x00
+        frame[4] = (command and 0xFF).toByte()          // command low byte (LE)
+        frame[5] = ((command ushr 8) and 0xFF).toByte() // command high byte
+        frame[6] = sequence.toByte()
+        frame[7] = (payload.size and 0xFF).toByte()     // payload length (LE)
+        frame[8] = ((payload.size ushr 8) and 0xFF).toByte()
+        payload.copyInto(frame, ProtocolConstants.HEADER_SIZE)
         return frame
     }
 
@@ -78,88 +78,68 @@ object FrameBuilder {
      * [data] must contain exactly one frame (no trailing bytes).
      */
     fun parse(data: ByteArray): Frame {
-        if (data.size < ProtocolConstants.HEADER_SIZE + ProtocolConstants.CRC_SIZE) {
+        if (data.size < ProtocolConstants.HEADER_SIZE) {
             throw FrameException("frame too short (${data.size} bytes)")
         }
-        for (i in MAGIC.indices) {
-            if (data[i] != MAGIC[i]) throw FrameException("bad magic at byte $i")
+        if (data[0].toInt() and 0xFF != ProtocolConstants.PREAMBLE) {
+            throw FrameException("bad preamble 0x%02X".format(data[0].toInt() and 0xFF))
         }
-        val command = data[ProtocolConstants.OFFSET_COMMAND].toInt() and 0xFF
-        val sequence = data[ProtocolConstants.OFFSET_SEQUENCE].toInt() and 0xFF
-        val length = ((data[ProtocolConstants.OFFSET_LENGTH].toInt() and 0xFF) shl 8) or
-            (data[ProtocolConstants.OFFSET_LENGTH + 1].toInt() and 0xFF)
-
-        val expected = ProtocolConstants.HEADER_SIZE + length + ProtocolConstants.CRC_SIZE
-        if (data.size < expected) throw FrameException("declared length $length exceeds buffer of ${data.size} bytes")
-        if (data.size > expected) throw FrameException("trailing bytes after frame (${data.size - expected})")
-
-        val computed = Crc16.compute(data, 0, ProtocolConstants.HEADER_SIZE + length)
-        val received = Crc16.fromBytes(data, ProtocolConstants.HEADER_SIZE + length)
-        if (computed != received) {
-            throw FrameException("CRC mismatch: computed 0x%04X, received 0x%04X".format(computed, received))
+        val totalLen = data[1].toInt() and 0xFF
+        if (data.size != totalLen + 2) {
+            throw FrameException("length byte says ${totalLen + 2}, got ${data.size} bytes")
+        }
+        val command = (data[4].toInt() and 0xFF) or ((data[5].toInt() and 0xFF) shl 8)
+        val sequence = data[6].toInt() and 0xFF
+        val payloadLen = (data[7].toInt() and 0xFF) or ((data[8].toInt() and 0xFF) shl 8)
+        if (data.size < ProtocolConstants.HEADER_SIZE + payloadLen) {
+            throw FrameException("payload length $payloadLen exceeds buffer ${data.size}")
         }
         return Frame(
             command = command,
             sequence = sequence,
-            payload = data.copyOfRange(ProtocolConstants.OFFSET_PAYLOAD, ProtocolConstants.OFFSET_PAYLOAD + length),
+            payload = data.copyOfRange(ProtocolConstants.HEADER_SIZE, ProtocolConstants.HEADER_SIZE + payloadLen),
         )
     }
 
     /**
-     * Convenience for reading a framed reply off a stream: reads until a full,
-     * CRC-valid frame is available, or throws [FrameException] on EOF/garbage.
-     * Non-magic leading bytes are skipped (some chipsets emit event noise).
-     *
-     * [sniff] receives one debug line per read — junk bytes seen before the
-     * magic and the raw frame hex — for diagnosing protocol mismatches.
+     * Read one framed message off a stream. Bytes before the preamble are
+     * logged through [sniff] (some buds emit event noise between frames).
      */
-    fun readFrame(input: java.io.InputStream, sniff: ((String) -> Unit)? = null): Frame {
-        val junk = StringBuilder()
-        val header = ByteArray(ProtocolConstants.HEADER_SIZE)
-        var magicPos = 0
-        // Skip junk until we see the full magic sequence.
-        while (magicPos < MAGIC.size) {
+    fun readFrame(input: InputStream, sniff: ((String) -> Unit)? = null): Frame {
+        var skipped = StringBuilder()
+        // 1. Wait for the preamble.
+        while (true) {
             val b = input.read()
             if (b == -1) {
-                sniff?.invoke("EOF waiting for magic (skipped ${junk.length} junk bytes)")
-                throw EOFException("stream ended while waiting for magic")
+                sniff?.invoke("EOF waiting for preamble (skipped ${skipped.length} chars)")
+                throw EOFException("stream ended while waiting for preamble")
             }
-            if (b == MAGIC[magicPos].toInt() and 0xFF) {
-                header[magicPos] = b.toByte()
-                magicPos++
-            } else {
-                if (junk.length < 96) junk.append("%02X ".format(b))
-                // Re-scan from the start; a stray magic byte is handled next loop.
-                magicPos = if (b == MAGIC[0].toInt() and 0xFF) 1 else 0
-            }
+            if (b == ProtocolConstants.PREAMBLE) break
+            if (skipped.length < 96) skipped.append("%02X ".format(b))
         }
-        if (junk.isNotEmpty()) sniff?.invoke("skipped non-magic bytes: $junk")
-        // Read remaining fixed header (command, sequence, length).
-        while (magicPos < ProtocolConstants.HEADER_SIZE) {
-            val b = input.read()
-            if (b == -1) {
-                sniff?.invoke("EOF inside header")
-                throw EOFException("stream ended inside header")
-            }
-            header[magicPos] = b.toByte()
-            magicPos++
+        if (skipped.isNotEmpty()) {
+            sniff?.invoke("skipped non-preamble bytes: $skipped")
+            skipped = StringBuilder()
         }
-        val length = ((header[ProtocolConstants.OFFSET_LENGTH].toInt() and 0xFF) shl 8) or
-            (header[ProtocolConstants.OFFSET_LENGTH + 1].toInt() and 0xFF)
-        val total = ProtocolConstants.HEADER_SIZE + length + ProtocolConstants.CRC_SIZE
-        val buf = header.copyOf(total)
-        var off = ProtocolConstants.HEADER_SIZE
-        while (off < total) {
-            val n = input.read(buf, off, total - off)
+        // 2. Total length byte.
+        val totalLen = input.read()
+        if (totalLen == -1) throw EOFException("stream ended inside header")
+        // 3. Read the rest of the frame (totalLen counts bytes after the length byte).
+        val buf = ByteArray(totalLen + 2)
+        buf[0] = ProtocolConstants.PREAMBLE.toByte()
+        buf[1] = totalLen.toByte()
+        var off = 2
+        while (off < buf.size) {
+            val n = input.read(buf, off, buf.size - off)
             if (n == -1) {
-                sniff?.invoke("EOF inside payload/CRC (got $off of $total bytes)")
-                throw EOFException("stream ended inside payload/CRC")
+                sniff?.invoke("EOF inside frame (got $off of ${buf.size} bytes)")
+                throw EOFException("stream ended inside frame")
             }
             off += n
         }
         val frame = parse(buf)
         sniff?.invoke(
-            "cmd=0x%02X seq=0x%02X len=%d raw=%s".format(
+            "cmd=0x%04X seq=0x%02X len=%d raw=%s".format(
                 frame.command, frame.sequence, frame.payload.size, buf.toHexString(48),
             ),
         )

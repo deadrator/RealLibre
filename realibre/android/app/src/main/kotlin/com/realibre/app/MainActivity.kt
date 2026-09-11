@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Flutter ↔ native bridge. All socket traffic stays inside [RfcommManager]
- * (framed + HMAC-authenticated); this class only orchestrates it.
+ * (framed Oppo protocol); this class only orchestrates it.
  */
 class MainActivity : FlutterActivity() {
 
@@ -70,6 +70,12 @@ class MainActivity : FlutterActivity() {
                                         "source" to "rfcomm",
                                         "timestamp" to System.currentTimeMillis(),
                                     ),
+                                )
+                                is RfcommManager.Incoming.NoiseModeChanged -> sink?.success(
+                                    mapOf("type" to "noiseMode", "value" to ev.value),
+                                )
+                                is RfcommManager.Incoming.GameModeChanged -> sink?.success(
+                                    mapOf("type" to "gameMode", "enabled" to ev.enabled),
                                 )
                                 is RfcommManager.Incoming.Error ->
                                     sink?.success(mapOf("type" to "error", "message" to ev.message))
@@ -162,17 +168,51 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                "setAttribute" -> {
-                    val attr = (call.argument<Number>("attr") ?: 0).toInt()
+                "setNoiseMode" -> {
                     val value = (call.argument<Number>("value") ?: 0).toInt()
                     scope.launch {
                         try {
-                            RfcommManager.setAttribute(attr, value)
-                            if (attr == ProtocolConstants.ATTR_NOISE_CONTROL) BudStateCache.noiseMode.value = value
+                            RfcommManager.setNoiseMode(value)
+                            BudStateCache.noiseMode.value = value
                             result.success(true)
                         } catch (e: Exception) {
-                            result.error("ATTR_FAILED", e.message, null)
+                            result.error("NOISE_FAILED", e.message, null)
                         }
+                    }
+                }
+
+                "setGameMode" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    scope.launch {
+                        try {
+                            RfcommManager.setGameMode(enabled)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("GAME_FAILED", e.message, null)
+                        }
+                    }
+                }
+
+                "setMultipoint" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    scope.launch {
+                        try {
+                            RfcommManager.setMultipoint(enabled)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("MULTIPOINT_FAILED", e.message, null)
+                        }
+                    }
+                }
+
+                "findDevice" -> scope.launch {
+                    try {
+                        RfcommManager.findDevice(true)
+                        kotlinx.coroutines.delay(3000)
+                        RfcommManager.findDevice(false)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("FIND_FAILED", e.message, null)
                     }
                 }
 

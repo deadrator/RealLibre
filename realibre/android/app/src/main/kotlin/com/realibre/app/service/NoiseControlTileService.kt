@@ -13,8 +13,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Quick Settings tile cycling ANC → Transparency → Off through the same
- * authenticated RfcommManager path as the in-app selector (max-1-connection:
- * it shares the single socket, never opens a second one).
+ * RfcommManager path as the in-app selector (max-1-connection: it shares the
+ * single socket, never opens a second one).
  */
 class NoiseControlTileService : TileService() {
 
@@ -27,7 +27,7 @@ class NoiseControlTileService : TileService() {
         scope.launch {
             if (!RfcommManager.isConnected) {
                 runCatching { RfcommManager.connect(applicationContext) }
-                    .onSuccess { refreshMode() }
+                    .onSuccess { updateTile(BudStateCache.noiseMode.value) }
                     .onFailure {
                         android.widget.Toast.makeText(
                             this@NoiseControlTileService,
@@ -39,17 +39,13 @@ class NoiseControlTileService : TileService() {
         }
     }
 
-    override fun onStopListening() {
-        super.onStopListening()
-    }
-
     override fun onClick() {
         super.onClick()
         val current = BudStateCache.noiseMode.value
         val next = when (current) {
-            ProtocolConstants.NOISE_ANC -> ProtocolConstants.NOISE_TRANSPARENCY
-            ProtocolConstants.NOISE_TRANSPARENCY -> ProtocolConstants.NOISE_OFF
-            else -> ProtocolConstants.NOISE_ANC
+            ProtocolConstants.ANC_ON -> ProtocolConstants.ANC_TRANSPARENCY
+            ProtocolConstants.ANC_TRANSPARENCY -> ProtocolConstants.ANC_OFF
+            else -> ProtocolConstants.ANC_ON
         }
         updateTile(next) // optimistic
         scope.launch {
@@ -57,7 +53,7 @@ class NoiseControlTileService : TileService() {
                 if (!RfcommManager.isConnected) {
                     RfcommManager.connect(applicationContext)
                 }
-                RfcommManager.setAttribute(ProtocolConstants.ATTR_NOISE_CONTROL, next)
+                RfcommManager.setNoiseMode(next)
                 BudStateCache.noiseMode.value = next
                 updateTile(next)
             } catch (e: Exception) {
@@ -71,26 +67,21 @@ class NoiseControlTileService : TileService() {
         }
     }
 
-    private suspend fun refreshMode() {
-        // The protocol has no read-back for Attr 0x05 here; keep last known.
-        updateTile(BudStateCache.noiseMode.value)
-    }
-
     private fun updateTile(mode: Int?) {
         val tile = qsTile ?: return
         val subtitle: String?
         when (mode) {
-            ProtocolConstants.NOISE_ANC -> {
+            ProtocolConstants.ANC_ON -> {
                 tile.state = Tile.STATE_ACTIVE
                 tile.label = "ANC"
                 subtitle = "Noise cancelling"
             }
-            ProtocolConstants.NOISE_TRANSPARENCY -> {
+            ProtocolConstants.ANC_TRANSPARENCY -> {
                 tile.state = Tile.STATE_ACTIVE
                 tile.label = "Transparency"
                 subtitle = "Hear surroundings"
             }
-            ProtocolConstants.NOISE_OFF -> {
+            ProtocolConstants.ANC_OFF -> {
                 tile.state = Tile.STATE_INACTIVE
                 tile.label = "Noise off"
                 subtitle = "No cancellation"

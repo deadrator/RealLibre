@@ -4,7 +4,7 @@ import '../../core/platform/method_channels.dart';
 import '../../state/bud_controller.dart';
 
 /// Pairing + connect flow. Animates a pulsing earbud while searching, then
-/// hands off to the dashboard once the HMAC handshake completes.
+/// hands off to the dashboard once the buds answer the init sequence.
 class PairingScreen extends StatefulWidget {
   const PairingScreen({super.key, required this.controller, required this.onConnected});
 

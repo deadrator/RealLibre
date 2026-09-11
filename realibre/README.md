@@ -13,29 +13,37 @@ An open-source, telemetry-free companion app and custom pairer for the **Realme 
 ## Non-negotiables (enforced by design)
 
 - **No telemetry, no analytics SDKs, no network calls** — the only radios used are Bluetooth OS APIs. The dependency list is `flutter` + `cupertino_icons` alone; auditable in `pubspec.yaml`.
-- **Every Bluetooth write goes through the framed + HMAC-authenticated path.** `RfcommManager.writeRaw` is `private`, so no caller can bypass `FrameBuilder` (CRC) or `HmacAuth` (handshake).
-- **Kotlin and Dart attribute tables must never drift.** `ProtocolConstants.kt` and `lib/core/constants/bud_enums.dart` mirror each other 1:1 and a unit test pins every Dart attribute ID against the spec table — if you change one side, update the other and the test.
+- **Every Bluetooth write goes through the framed path.** `RfcommManager.writeRaw` is `private`, so no caller can bypass `FrameBuilder`.
+- **Kotlin and Dart tables must never drift.** `ProtocolConstants.kt` and `lib/core/constants/bud_enums.dart` mirror each other 1:1 — if you change one side, update the other and the tests.
 
 ## Protocol summary
 
-Frames: `[RMV magic][cmd][seq][len u16 BE][payload][CRC16 u16 BE]` with a bitwise CRC-16 (poly `0x1021`, init `0`, XOR-masked shifts). Commands:
+The T310 speaks the **Oppo/Realme "HeyThings" SPP protocol**, reverse-engineered by the [Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge) project (T100/T300/Enco Buds2 share it; protocol details only — no code copied).
 
-| Cmd | Purpose |
+Frames: `[0xAA][totalLen][0000][cmd u16 LE][seq][payloadLen u16 LE][payload]` — **no CRC, no authentication handshake** (an earlier "RMV+CRC16+HMAC" spec did not match the real firmware; the buds silently ignore unknown frames).
+
+| Command (u16 LE) | Purpose |
 |---|---|
-| `0x01` | Auth challenge (16 random client bytes → HMAC verify + earbud challenge) |
-| `0x02` | Auth response (`0x0A` + HMAC over earbud challenge) → session unlocked |
-| `0x03` | Status query → true 1% L/R/Case battery |
-| `0x04` | ATTR_SET: `[0x02, attrId, value]` |
+| `0x0106` / `0x8106` | Battery request / reply (L/R/Case, true 1%, charging bit) |
+| `0x010C` / `0x810C` | ANC config query / reply |
+| `0x0404` / `0x8404` | ANC config set / ack — payload `[type=MODE, 0x01, value]` |
+| `0x010D` / `0x810D` | Misc config query / reply (game mode, multipoint) |
+| `0x0403` / `0x8403` | Misc config set / ack — payload `[type, value]` |
+| `0x0205` / `0x8205` | Subscribe to push updates (battery, ANC selector, game mode) |
+| `0x0204` | Pushed subscription updates |
+| `0x0105` / `0x8105` | Firmware version |
+| `0x0400` / `0x8400` | Find device (locator tone) |
 
-The HMAC-SHA256 handshake must complete before any `0x03`/`0x04` is sent; `RfcommManager` gates this with an `authenticated` flag that only flips after a verified two-pass exchange.
+ANC mode values: `0x01` off, `0x02` transparency, `0x08` ANC (not 0/1/2!). Battery payload: `[status, count, (index, level)...]` with index 1=L, 2=R, 3=case and `level & 0x7F` percent, `& 0x80` charging flag.
 
 ## App layout
 
-- **Pairing screen** — pulsing earbud animation, one-tap bond + connect + handshake.
+- **Pairing screen** — only shown when the buds were never bonded or a reconnect failed; the app auto-connects on launch.
 - **Dashboard** — a compact earbud **status bar at ~1/4 screen height** showing current ANC mode and mini L/R/Case battery fills; tapping it expands the full settings (noise selector, EQ, effects toggles) with an animated crossfade.
 - **Notification** — ongoing low-priority battery notification with a quick ANC-cycle action.
 - **Quick Settings tile** — cycles ANC → Transparency → Off through the same authenticated connection.
 - **Fast Pair popup button** — queries fresh 1% battery and re-fires the GMS Nearby battery broadcast with exact values (see limitation below).
+- **Wire debug console** — every RFCOMM frame as a hex dump, in-app (dashboard bug icon).
 
 ## Building
 
@@ -56,7 +64,7 @@ Push to `main` or open a PR — [.github/workflows/build-apk.yml](.github/workfl
 
 1. **Fast Pair popup redraw** — GMS does not allow third-party apps to force the Fast Pair battery UI to redraw on all OEM builds. Where the popup cannot be triggered, RealiBre fires the `com.google.android.gms.nearby.discovery.ACTION_BATTERY_CHANGED` broadcast itself with true 1% values so any listener (including RealiBre's own notification) reflects exact numbers.
 2. **HFP fallback is coarse** — when RFCOMM is unavailable, HFP `+VDBTY`/`+IPHONEACCEV` only gives ~10% steps; the UI flags this with a "coarse" chip instead of pretending it's precise.
-3. **CRC/auth vectors** — the CRC-16 implementation follows the spec described in this project (poly `0x1021`, init 0, XOR-masked shifts). If you capture real frames from your buds, add them as golden vectors in `android/app/src/test/` to harden the test suite.
+3. **T310 specifics** — Gadgetbridge has shipped support for T100/T300/Enco Buds2 on this protocol family; the T310 is expected to match but command support (e.g. which misc configs exist) may differ slightly. The in-app wire-debug console (bug icon on the dashboard) shows every frame so mismatches are immediately visible.
 
 ## Project structure
 
@@ -68,10 +76,8 @@ realibre/
 │       ├── MainActivity.kt            # MethodChannel + EventChannel bridge
 │       ├── bluetooth/
 │       │   ├── ProtocolConstants.kt   # wire protocol constants (Kotlin truth)
-│       │   ├── Crc16.kt               # bitwise CRC-16
-│       │   ├── FrameBuilder.kt        # frame build/parse
-│       │   ├── HmacAuth.kt            # HMAC-SHA256 handshake
-│       │   └── RfcommManager.kt       # single authenticated socket owner
+│       │   ├── FrameBuilder.kt        # 0xAA frame build/parse
+│       │   └── RfcommManager.kt       # single socket owner + init sequence
 │       ├── service/
 │       │   ├── BatteryNotificationService.kt
 │       │   ├── BluetoothStateReceiver.kt

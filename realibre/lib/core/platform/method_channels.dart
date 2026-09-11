@@ -1,6 +1,6 @@
 /// Typed wrapper over the `realibre/methods` + `realibre/events` platform
-/// channels. All bud writes funnel through here and end up in the framed,
-/// HMAC-authenticated native path.
+/// channels. All bud writes funnel through here and end up in the framed
+/// native path (real Oppo/Realme protocol).
 library;
 
 import 'dart:async';
@@ -39,11 +39,20 @@ class BatterySnapshot {
 }
 
 class BudTelemetryEvent {
-  const BudTelemetryEvent({this.battery, this.error, this.state, this.debugLine});
+  const BudTelemetryEvent({
+    this.battery,
+    this.error,
+    this.state,
+    this.debugLine,
+    this.noiseMode,
+    this.gameMode,
+  });
   final BatterySnapshot? battery;
   final String? error;
   final ConnectionState? state;
   final String? debugLine;
+  final int? noiseMode;
+  final bool? gameMode;
 }
 
 class BudChannels {
@@ -75,6 +84,10 @@ class BudChannels {
               return BudTelemetryEvent(error: (map?['message'] as String?) ?? 'unknown error');
             case 'debug':
               return BudTelemetryEvent(debugLine: (map?['line'] as String?) ?? '');
+            case 'noiseMode':
+              return BudTelemetryEvent(noiseMode: (map?['value'] as num?)?.toInt());
+            case 'gameMode':
+              return BudTelemetryEvent(gameMode: map?['enabled'] as bool?);
             default:
               return const BudTelemetryEvent();
           }
@@ -97,34 +110,16 @@ class BudChannels {
   Future<BatterySnapshot> queryBattery() async => BatterySnapshot.fromMap(await _methods.invokeMethod('queryBattery'));
 
   Future<void> setNoiseMode(NoiseMode mode) =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.noiseControl, 'value': mode.value});
+      _methods.invokeMethod('setNoiseMode', {'value': mode.value});
 
-  Future<void> setAncLevel(AncLevel level) =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.ancSubLevel, 'value': level.value});
-
-  Future<void> setEqMode(EqMode mode) =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.eqMode, 'value': mode.value});
-
-  Future<void> setGaming(bool on) =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.gaming, 'value': on ? 1 : 0});
-
-  Future<void> setSpatialAudio(bool on) =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.spatialAudio, 'value': on ? 1 : 0});
-
-  Future<void> setVolumeEnhancer(bool on) =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.volumeEnhancer, 'value': on ? 1 : 0});
-
-  Future<void> setWindNoise(bool on) =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.windNoise, 'value': on ? 1 : 0});
-
-  Future<void> setEnhanceVoices(bool on) =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.enhanceVoices, 'value': on ? 1 : 0});
+  Future<void> setGameMode(bool on) =>
+      _methods.invokeMethod('setGameMode', {'enabled': on});
 
   Future<void> setMultipoint(bool on) =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.multipoint, 'value': on ? 1 : 0});
+      _methods.invokeMethod('setMultipoint', {'enabled': on});
 
-  Future<void> triggerFitTest() =>
-      _methods.invokeMethod('setAttribute', {'attr': AttrId.fitTest, 'value': 1});
+  /// Make the buds play their locator tone for ~3 seconds.
+  Future<void> findDevice() => _methods.invokeMethod('findDevice');
 
   /// Query fresh 1% battery and fire the Fast Pair battery broadcast with the
   /// precise values. Returns true when the broadcast was accepted.

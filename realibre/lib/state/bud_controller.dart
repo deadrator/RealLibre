@@ -10,7 +10,7 @@ import '../core/platform/method_channels.dart';
 BudChannels budChannelsInstance = BudChannels();
 
 /// Central controller: owns connection lifecycle, mirrors telemetry streams
-/// into state, and performs every attribute write through [BudChannels].
+/// into state, and performs every command through [BudChannels].
 class BudController extends ChangeNotifier {
   BudController({BudChannels? channels}) : _channels = channels ?? budChannelsInstance;
 
@@ -24,12 +24,8 @@ class BudController extends ChangeNotifier {
   ConnectionState _state = ConnectionState.disconnected;
   BatterySnapshot _battery = const BatterySnapshot(left: 0, right: 0, caseLevel: 0, source: 'rfcomm');
   NoiseMode _noiseMode = NoiseMode.off;
-  AncLevel _ancLevel = AncLevel.moderate;
-  EqMode _eqMode = EqMode.defaultMode;
-  final Set<String> _toggles = {};
-  String? _lastError;
-  bool _keepAlive = true;
-  bool _autoConnectAttempted = false;
+  bool _gameMode = false;
+  bool _multipoint = false;
 
   /// Ring buffer of native wire-debug lines (hex frames, handshake steps)
   /// shown on the dashboard's debug console — diagnosing a wrong protocol
@@ -37,19 +33,19 @@ class BudController extends ChangeNotifier {
   final List<String> _debugLines = [];
   List<String> get debugLines => List.unmodifiable(_debugLines);
 
-  /// Whether the silent auto-connect has already been tried this session —
-  /// after it runs, the pairing screen is only shown if it failed.
-  bool get autoConnectAttempted => _autoConnectAttempted;
+  String? _lastError;
+  bool _keepAlive = true;
+  bool _autoConnectAttempted = false;
 
   ConnectionState get state => _state;
   BatterySnapshot get battery => _battery;
   NoiseMode get noiseMode => _noiseMode;
-  AncLevel get ancLevel => _ancLevel;
-  EqMode get eqMode => _eqMode;
+  bool get gameMode => _gameMode;
+  bool get multipoint => _multipoint;
   String? get lastError => _lastError;
   bool get keepAlive => _keepAlive;
   bool get isConnected => _state == ConnectionState.connected;
-  bool isToggleOn(String key) => _toggles.contains(key);
+  bool get autoConnectAttempted => _autoConnectAttempted;
 
   /// Begin listening to native events; safe to call multiple times.
   void attach() {
@@ -67,6 +63,8 @@ class BudController extends ChangeNotifier {
       _debugLines.add(event.debugLine!);
       if (_debugLines.length > 80) _debugLines.removeRange(0, _debugLines.length - 80);
     }
+    if (event.noiseMode != null) _noiseMode = NoiseMode.fromValue(event.noiseMode!);
+    if (event.gameMode != null) _gameMode = event.gameMode!;
     notifyListeners();
   }
 
@@ -80,14 +78,11 @@ class BudController extends ChangeNotifier {
   /// Best-effort silent reconnect for the common case: the buds are already
   /// bonded and usually already streaming audio via the OS Bluetooth stack —
   /// no pairing dialog needed, so skip the pairing screen entirely.
-  /// Only opens the RFCOMM control channel when the buds are bonded.
   Future<void> autoConnect() async {
     if (_autoConnectAttempted) return;
     _autoConnectAttempted = true;
     if (!await _channels.hasPermissions()) {
       await _channels.requestPermissions();
-      // The grant arrives via the system dialog; if it's still pending the
-      // user can connect manually from the pairing screen afterwards.
       if (!await _channels.hasPermissions()) return;
     }
     try {
@@ -103,8 +98,6 @@ class BudController extends ChangeNotifier {
         await refreshBattery();
         await _channels.startBatteryService();
       }
-      // On failure the state flips to failed/disconnected via the event
-      // channel and the UI falls back to the pairing screen with the reason.
     } on PlatformException catch (e) {
       _lastError = e.message ?? e.code;
       notifyListeners();
@@ -116,7 +109,7 @@ class BudController extends ChangeNotifier {
     }
   }
 
-  /// Manual reconnect from the dashboard after a drop (tap the status bar).
+  /// Manual reconnect from the dashboard after a drop.
   Future<void> reconnect() async {
     try {
       final ok = await _channels.connect().timeout(
@@ -170,8 +163,6 @@ class BudController extends ChangeNotifier {
       notifyListeners();
       return false;
     } catch (e) {
-      // Never let an unexpected native error escape: the pairing screen
-      // relies on a clean false to stop its spinner and show the message.
       _lastError = e.toString();
       notifyListeners();
       return false;
@@ -223,66 +214,39 @@ class BudController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setAncLevel(AncLevel level) async {
-    final prev = _ancLevel;
-    _ancLevel = level;
+  Future<void> setGameMode(bool on) async {
+    final prev = _gameMode;
+    _gameMode = on;
     notifyListeners();
     try {
-      await _channels.setAncLevel(level);
-    } on PlatformException catch (e) {
-      _ancLevel = prev;
-      _lastError = e.message ?? e.code;
-    }
-    notifyListeners();
-  }
-
-  Future<void> setEqMode(EqMode mode) async {
-    final prev = _eqMode;
-    _eqMode = mode;
-    notifyListeners();
-    try {
-      await _channels.setEqMode(mode);
-    } on PlatformException catch (e) {
-      _eqMode = prev;
-      _lastError = e.message ?? e.code;
-    }
-    notifyListeners();
-  }
-
-  Future<void> setToggle(String key, bool on) async {
-    final had = _toggles.contains(key);
-    void apply(bool v) => v ? _toggles.add(key) : _toggles.remove(key);
-    apply(on);
-    notifyListeners();
-    try {
-      switch (key) {
-        case 'gaming':
-          await _channels.setGaming(on);
-          break;
-        case 'spatial':
-          await _channels.setSpatialAudio(on);
-          break;
-        case 'volumeEnhancer':
-          await _channels.setVolumeEnhancer(on);
-          break;
-        case 'windNoise':
-          await _channels.setWindNoise(on);
-          break;
-        case 'enhanceVoices':
-          await _channels.setEnhanceVoices(on);
-          break;
-        case 'multipoint':
-          await _channels.setMultipoint(on);
-          break;
-        case 'fitTest':
-          await _channels.triggerFitTest();
-          break;
-        default:
-          break;
-      }
+      await _channels.setGameMode(on);
       _lastError = null;
     } on PlatformException catch (e) {
-      apply(had);
+      _gameMode = prev;
+      _lastError = e.message ?? e.code;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setMultipoint(bool on) async {
+    final prev = _multipoint;
+    _multipoint = on;
+    notifyListeners();
+    try {
+      await _channels.setMultipoint(on);
+      _lastError = null;
+    } on PlatformException catch (e) {
+      _multipoint = prev;
+      _lastError = e.message ?? e.code;
+    }
+    notifyListeners();
+  }
+
+  Future<void> findDevice() async {
+    try {
+      await _channels.findDevice();
+      _lastError = null;
+    } on PlatformException catch (e) {
       _lastError = e.message ?? e.code;
     }
     notifyListeners();

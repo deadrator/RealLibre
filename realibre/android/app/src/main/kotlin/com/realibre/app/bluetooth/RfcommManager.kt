@@ -18,7 +18,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -28,6 +27,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -38,15 +38,17 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+
 /**
- * Owns the single authenticated RFCOMM socket to the buds.
+ * Owns the single RFCOMM socket to the buds and speaks the real
+ * Oppo/Realme 0xAA protocol (see [ProtocolConstants]).
  *
- * Every outbound byte goes through [FrameBuilder.build]; every inbound byte is
- * CRC-checked by [FrameBuilder.parse]. The handshake in [HmacAuth] must finish
- * before [isAuthenticated] flips true — callers gate Cmd 0x03/0x04 on that.
+ * Every outbound byte goes through [FrameBuilder.build]; every inbound frame
+ * is decoded by [FrameBuilder.parse]. There is no authentication handshake on
+ * this protocol — after the socket opens we run the init sequence (queries +
+ * subscriptions) and the buds start answering.
  *
- * Max 1 active connection: one socket per process. Calling [connect] while
- * connected is a no-op.
+ * Max 1 active connection: one socket per process.
  */
 @SuppressLint("MissingPermission")
 object RfcommManager {
@@ -59,19 +61,20 @@ object RfcommManager {
         val left: Int,
         val right: Int,
         val case: Int,
+        val leftCharging: Boolean = false,
+        val rightCharging: Boolean = false,
+        val caseCharging: Boolean = false,
     ) {
         companion object {
-            /** Cmd 0x03 payload: L%, R%, Case% as true 1% integers. */
-            fun fromStatusPayload(p: ByteArray): Battery? {
-                if (p.size < 3) return null
-                fun clamp(v: Int) = (v and 0xFF).coerceIn(0, 100)
-                return Battery(clamp(p[0].toInt()), clamp(p[1].toInt()), clamp(p[2].toInt()))
-            }
+            /** Unknown/absent sentinel used when a bud doesn't report. */
+            const val UNKNOWN: Int = -1
         }
     }
 
     sealed class Incoming {
         data class BatteryLevel(val battery: Battery) : Incoming()
+        data class NoiseModeChanged(val value: Int) : Incoming()
+        data class GameModeChanged(val enabled: Boolean) : Incoming()
         data class FrameReceived(val frame: FrameBuilder.Frame) : Incoming()
         data class Error(val message: String) : Incoming()
     }
@@ -88,8 +91,7 @@ object RfcommManager {
     )
     val incoming: SharedFlow<Incoming> = _incoming
 
-    /** Wire-level diagnostics (hex dumps, step failures) surfaced to the UI
-     *  so a protocol mismatch can be diagnosed without adb. */
+    /** Wire-level diagnostics (hex dumps, step failures) surfaced to the UI. */
     private val _debug = MutableSharedFlow<String>(
         replay = 64, extraBufferCapacity = 256, onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
@@ -103,23 +105,22 @@ object RfcommManager {
     private var socket: BluetoothSocket? = null
     private var input: InputStream? = null
     private var output: OutputStream? = null
-    private val sequence = AtomicInteger(0)
     private val authed = AtomicBoolean(false)
-    private var readerJob: kotlinx.coroutines.Job? = null
     /** Bumped per connection attempt so stale reader loops can't tear down
      *  a newer session's socket in their finally block. */
     private val generation = AtomicLong(0)
     /** Guards against the app and the QS tile dialing at the same time. */
     private val connecting = AtomicBoolean(false)
+    private var readerJob: kotlinx.coroutines.Job? = null
 
     val isAuthenticated: Boolean get() = authed.get()
     val isConnected: Boolean get() = _state.value == ConnectionState.CONNECTED
 
-    private fun nextSeq(): Int = sequence.incrementAndGet() and 0xFF
-
-    /** Connect, run the auth handshake, then start the reader loop.
-     *  Every blocking step is bounded by a timeout and runs off the main
-     *  thread, so a silent bud can never wedge or ANR the UI. */
+    /**
+     * Connect, run the Oppo init sequence (queries + subscriptions), then
+     * start the reader loop. Every blocking step is bounded by a timeout and
+     * runs off the main thread.
+     */
     suspend fun connect(context: Context) {
         if (isConnected) return
         disconnect() // ensure clean slate
@@ -173,7 +174,6 @@ object RfcommManager {
                         break
                     } catch (e: TimeoutException) {
                         future.cancel(true)
-                        // Closing the socket aborts the blocked connect() on the dial thread.
                         try { dialSocket?.close() } catch (_: Exception) {}
                         lastError = IOException("$label timed out after ${ProtocolConstants.CONNECT_TIMEOUT_MS / 1000}s")
                         logWire("$label timed out")
@@ -185,14 +185,14 @@ object RfcommManager {
                     closeSocketQuietly()
                 }
                 lastError?.let { throw it }
-            }
 
-            _state.value = ConnectionState.AUTHENTICATING
-            // Bounded handshake: on timeout the socket is closed by the outer
-            // catch below, which also unblocks the stuck read on rfcomm-io.
-            withTimeoutOrNull(ProtocolConstants.HANDSHAKE_TIMEOUT_MS) {
-                withContext(ioDispatcher) { runHandshake() }
-            } ?: throw IOException("auth handshake timed out after ${ProtocolConstants.HANDSHAKE_TIMEOUT_MS / 1000}s")
+                // No handshake on this protocol — mark authenticated and run
+                // the init sequence (Gadgetbridge-style: queries + subs).
+                authed.set(true)
+                _state.value = ConnectionState.CONNECTED
+                startReader(session)
+                runInitSequence()
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             closeSocketQuietly()
             authed.set(false)
@@ -205,92 +205,235 @@ object RfcommManager {
         } finally {
             connecting.set(false)
         }
-
-        authed.set(true)
-        _state.value = ConnectionState.CONNECTED
-        startReader(session)
     }
 
-    /** Cmd 0x01 → verify → Cmd 0x02 → expect Cmd 0x02 confirm.
-     *  Every step is wire-logged; failures carry the raw bytes so a wrong
-     *  protocol assumption (magic, CRC, command IDs) is diagnosable in-app. */
-    private fun runHandshake() {
-        val clientRandom = HmacAuth.newClientChallenge()
-        writeRaw(FrameBuilder.build(ProtocolConstants.CMD_AUTH_CHALLENGE, nextSeq(), clientRandom))
-
-        val reply = try {
-            FrameBuilder.readFrame(input ?: throw IOException("stream lost")) { logWire("← $it") }
-        } catch (e: EOFException) {
-            throw HmacAuth.AuthException(
-                "buds closed the stream during the Cmd 0x01 exchange — " +
-                    "they never answered the RMV-framed challenge (protocol data may be wrong)",
-            )
-        } catch (e: FrameBuilder.FrameException) {
-            throw HmacAuth.AuthException("${e.message} — buds speak a different frame format")
-        }
-        if (reply.command != ProtocolConstants.CMD_AUTH_CHALLENGE) {
-            throw HmacAuth.AuthException(
-                "expected Cmd 0x01 reply, got 0x%02X (payload %s)".format(reply.command, reply.payload.toHexString()),
-            )
-        }
-        val earbudRandom = try {
-            HmacAuth.verifyChallengeReply(reply.payload, clientRandom)
-        } catch (e: HmacAuth.AuthException) {
-            throw HmacAuth.AuthException("${e.message} (reply payload ${reply.payload.toHexString()})")
-        }
-
+    /**
+     * Init sequence after connect: query current ANC mode + misc config,
+     * subscribe to push updates, ask for firmware and battery. The first
+     * battery request is often ignored by the buds, so it is retried.
+     */
+    private fun runInitSequence() {
+        logWire("running init sequence")
+        // Query current ANC mode (reply: ANC_CONFIG_RET).
         writeRaw(
             FrameBuilder.build(
-                ProtocolConstants.CMD_AUTH_RESPONSE,
-                nextSeq(),
-                HmacAuth.buildResponsePayload(earbudRandom),
-            )
+                ProtocolConstants.CMD_ANC_CONFIG_REQ, FrameBuilder.nextSequence(),
+                byteArrayOf(ProtocolConstants.ANC_TYPE_MODE.toByte(), 0x01),
+            ),
         )
+        // Query game mode + multipoint state.
+        writeRaw(
+            FrameBuilder.build(
+                ProtocolConstants.CMD_MISC_CONFIG_REQ, FrameBuilder.nextSequence(),
+                byteArrayOf(0x02, ProtocolConstants.MISC_GAME_MODE.toByte(), ProtocolConstants.MISC_MULTIPOINT.toByte()),
+            ),
+        )
+        // Subscribe to push updates: battery, ANC selector, game mode.
+        writeRaw(
+            FrameBuilder.build(
+                ProtocolConstants.CMD_SUBSCRIPTION_SET, FrameBuilder.nextSequence(),
+                byteArrayOf(
+                    0x09,
+                    ProtocolConstants.SUB_BATTERY.toByte(),
+                    ProtocolConstants.SUB_ANC_SELECTOR.toByte(),
+                    ProtocolConstants.SUB_GAME_MODE.toByte(),
+                ),
+            ),
+        )
+        // Firmware version (nice for the debug console).
+        writeRaw(FrameBuilder.build(ProtocolConstants.CMD_FIRMWARE_GET, FrameBuilder.nextSequence()))
+        // Battery now; the reader emits BatteryLevel on BATTERY_RET.
+        scope.launch(ioDispatcher) { queryBatteryWithRetry() }
+    }
 
-        val confirm = try {
-            FrameBuilder.readFrame(input ?: throw IOException("stream lost")) { logWire("← $it") }
-        } catch (e: EOFException) {
-            throw HmacAuth.AuthException("buds closed the stream awaiting the Cmd 0x02 confirm")
-        } catch (e: FrameBuilder.FrameException) {
-            throw HmacAuth.AuthException("${e.message} — buds speak a different frame format")
+    /**
+     * Send Cmd BATTERY_REQ and await BATTERY_RET (true 1% integers).
+     * The buds sometimes ignore the first request after connect — retry up
+     * to 3 times before giving up.
+     */
+    suspend fun queryBattery(): Battery {
+        requireAuthenticated()
+        repeat(2) { attempt ->
+            val battery = tryBatteryOnce()
+            if (battery != null) return battery
+            logWire("battery attempt ${attempt + 1} got no reply, retrying")
+            delay(400)
         }
-        if (confirm.command != ProtocolConstants.CMD_AUTH_RESPONSE) {
-            throw HmacAuth.AuthException(
-                "expected Cmd 0x02 confirm, got 0x%02X".format(confirm.command),
+        return tryBatteryOnce() ?: throw IOException("buds never answered the battery request")
+    }
+
+    private suspend fun tryBatteryOnce(): Battery? = coroutineScope {
+        val waiter = async(start = CoroutineStart.UNDISPATCHED) {
+            incoming.filterIsInstance<Incoming.BatteryLevel>().first()
+        }
+        try {
+            withContext(ioDispatcher) {
+                writeRaw(FrameBuilder.build(ProtocolConstants.CMD_BATTERY_REQ, FrameBuilder.nextSequence()))
+            }
+            withTimeoutOrNull(ProtocolConstants.RESPONSE_TIMEOUT_MS) { waiter.await() }?.battery
+        } catch (e: Throwable) {
+            waiter.cancel()
+            throw e
+        }
+    }
+
+    private suspend fun queryBatteryWithRetry() {
+        runCatching { queryBattery() }
+            .onFailure { logWire("initial battery poll failed: ${it.message}") }
+    }
+
+    /**
+     * Send a battery request without waiting for the reply (the reader pushes
+     * BATTERY_RET into the event stream). Used by the notification refresh.
+     */
+    suspend fun requestBatteryAsync() {
+        requireAuthenticated()
+        withContext(ioDispatcher) {
+            writeRaw(FrameBuilder.build(ProtocolConstants.CMD_BATTERY_REQ, FrameBuilder.nextSequence()))
+        }
+    }
+
+    /** ANC mode set: payload [ANC_TYPE_MODE, 0x01, value]. */
+    suspend fun setNoiseMode(value: Int) {
+        requireAuthenticated()
+        val payload = byteArrayOf(
+            ProtocolConstants.ANC_TYPE_MODE.toByte(),
+            0x01,
+            value.toByte(),
+        )
+        withContext(ioDispatcher) {
+            writeRaw(FrameBuilder.build(ProtocolConstants.CMD_ANC_CONFIG_SET, FrameBuilder.nextSequence(), payload))
+        }
+    }
+
+    /** Game (low latency) mode on/off via MISC_CONFIG_SET. */
+    suspend fun setGameMode(enabled: Boolean) {
+        requireAuthenticated()
+        val payload = byteArrayOf(ProtocolConstants.MISC_GAME_MODE.toByte(), if (enabled) 0x01 else 0x00)
+        withContext(ioDispatcher) {
+            writeRaw(FrameBuilder.build(ProtocolConstants.CMD_MISC_CONFIG_SET, FrameBuilder.nextSequence(), payload))
+        }
+    }
+
+    /** Multipoint (dual connection) on/off via MISC_CONFIG_SET. */
+    suspend fun setMultipoint(enabled: Boolean) {
+        requireAuthenticated()
+        val payload = byteArrayOf(ProtocolConstants.MISC_MULTIPOINT.toByte(), if (enabled) 0x01 else 0x00)
+        withContext(ioDispatcher) {
+            writeRaw(FrameBuilder.build(ProtocolConstants.CMD_MISC_CONFIG_SET, FrameBuilder.nextSequence(), payload))
+        }
+    }
+
+    /** Make the buds play a locator tone (FIND_DEVICE_REQ, 0x01=on 0x00=off). */
+    suspend fun findDevice(start: Boolean) {
+        requireAuthenticated()
+        withContext(ioDispatcher) {
+            writeRaw(
+                FrameBuilder.build(
+                    ProtocolConstants.CMD_FIND_DEVICE_REQ, FrameBuilder.nextSequence(),
+                    byteArrayOf(if (start) 0x01 else 0x00),
+                ),
             )
         }
-        logWire("handshake complete — session unlocked")
+    }
+
+    /**
+     * Parse a BATTERY_RET / battery subscription payload:
+     * `[status, count, (index, levelByte)...]` where index 1=L, 2=R, 3=case
+     * and levelByte & 0x7F is the percent, & 0x80 the charging flag.
+     */
+    private fun parseBatteryPayload(payload: ByteArray): Battery? {
+        if (payload.size < 2) return null
+        if (payload[0].toInt() != 0x00) {
+            logWire("battery ret status=${payload[0]}")
+            return null
+        }
+        var left = Battery.UNKNOWN
+        var right = Battery.UNKNOWN
+        var case = Battery.UNKNOWN
+        var leftCharging = false
+        var rightCharging = false
+        var caseCharging = false
+        var i = 2
+        while (i + 1 < payload.size) {
+            val index = payload[i].toInt() and 0xFF
+            val levelByte = payload[i + 1].toInt() and 0xFF
+            i += 2
+            if (index == 0xFF) continue
+            val level = levelByte and 0x7F
+            val charging = (levelByte and 0x80) != 0
+            when (index) {
+                1 -> { left = level; leftCharging = charging }
+                2 -> { right = level; rightCharging = charging }
+                3 -> { if (!(level == 0 && !charging)) { case = level; caseCharging = charging } }
+                else -> logWire("unknown battery index $index")
+            }
+        }
+        return Battery(left, right, case, leftCharging, rightCharging, caseCharging)
     }
 
     private fun startReader(session: Long) {
         readerJob?.cancel()
-        readerJob = scope.launch(ioDispatcher) {
+        // Pooled dispatcher: the loop blocks in read() for the lifetime of the
+        // socket, so it must NOT occupy the single-thread ioDispatcher that
+        // writeRaw needs — that would deadlock every later command.
+        readerJob = scope.launch(Dispatchers.IO) {
             val stream = input ?: return@launch
             try {
                 while (isConnected && isActive) {
                     val frame = try {
                         FrameBuilder.readFrame(stream) { logWire("← $it") }
-                    } catch (e: java.io.EOFException) {
+                    } catch (e: EOFException) {
                         break
                     } catch (e: Exception) {
                         _incoming.emit(Incoming.Error(e.message ?: "read error"))
                         break
                     }
                     when (frame.command) {
-                        ProtocolConstants.CMD_STATUS_QUERY -> {
-                            Battery.fromStatusPayload(frame.payload)?.let {
+                        ProtocolConstants.CMD_BATTERY_RET -> {
+                            parseBatteryPayload(frame.payload)?.let {
                                 _incoming.emit(Incoming.BatteryLevel(it))
+                            }
+                        }
+                        ProtocolConstants.CMD_SUBSCRIPTION_RET -> {
+                            when (frame.payload.getOrNull(0)?.toInt() and 0xFF) {
+                                ProtocolConstants.SUB_BATTERY -> {
+                                    parseBatteryPayload(frame.payload)?.let {
+                                        _incoming.emit(Incoming.BatteryLevel(it))
+                                    }
+                                }
+                                ProtocolConstants.SUB_ANC_SELECTOR -> {
+                                    val mode = frame.payload.getOrNull(2)?.toInt() and 0xFF
+                                    _incoming.emit(Incoming.NoiseModeChanged(mode))
+                                }
+                                ProtocolConstants.SUB_GAME_MODE -> {
+                                    _incoming.emit(Incoming.GameModeChanged(frame.payload.getOrNull(1) == 0x01.toByte()))
+                                }
+                            }
+                        }
+                        ProtocolConstants.CMD_ANC_CONFIG_RET -> {
+                            // [status, type, ?, value]
+                            val type = frame.payload.getOrNull(1)?.toInt() and 0xFF
+                            if (type == ProtocolConstants.ANC_TYPE_MODE) {
+                                val mode = frame.payload.getOrNull(3)?.toInt() and 0xFF
+                                _incoming.emit(Incoming.NoiseModeChanged(mode))
+                            }
+                        }
+                        ProtocolConstants.CMD_MISC_CONFIG_RET -> {
+                            for (j in 2 until frame.payload.size - 1 step 2) {
+                                val type = frame.payload[j].toInt() and 0xFF
+                                val value = frame.payload[j + 1].toInt() and 0xFF
+                                if (type == ProtocolConstants.MISC_GAME_MODE) {
+                                    _incoming.emit(Incoming.GameModeChanged(value == 1))
+                                }
                             }
                         }
                         else -> _incoming.emit(Incoming.FrameReceived(frame))
                     }
                 }
             } finally {
-                // The loop exits on EOF, read error, disconnect(), or state
-                // change — tear the session down in every case so the app can
-                // reconnect cleanly instead of sitting on a stale socket.
-                // A superseded reader (stale session) must not touch the
-                // current socket.
+                // Tear down on any exit so the app can reconnect cleanly; a
+                // superseded reader must not touch the current socket.
                 if (generation.get() == session) {
                     closeSocketQuietly()
                     authed.set(false)
@@ -302,45 +445,11 @@ object RfcommManager {
         }
     }
 
-    /**
-     * Send Cmd 0x03 and await the status reply (true 1% integers).
-     * Subscribes BEFORE writing so the reply cannot slip past the collector,
-     * then awaits it with a timeout.
-     */
-    suspend fun queryBattery(): Battery = coroutineScope {
-        requireAuthenticated()
-        val waiter = async(start = CoroutineStart.UNDISPATCHED) {
-            incoming.filterIsInstance<Incoming.BatteryLevel>().first()
-        }
-        try {
-            withContext(ioDispatcher) {
-                writeRaw(FrameBuilder.build(ProtocolConstants.CMD_STATUS_QUERY, nextSeq(), ByteArray(0)))
-            }
-            val reply = withTimeoutOrNull(2_500L) { waiter.await() }
-            reply?.battery ?: throw IOException("timed out waiting for battery status")
-        } catch (e: Throwable) {
-            waiter.cancel()
-            throw e
-        }
-    }
-
-    /** Send Cmd 0x04 ATTR_SET with payload [0x02, attrId, value]. */
-    suspend fun setAttribute(attrId: Int, value: Int) {
-        requireAuthenticated()
-        val payload = byteArrayOf(
-            ProtocolConstants.ATTR_PAYLOAD_LENGTH.toByte(),
-            attrId.toByte(),
-            value.toByte(),
-        )
-        val frame = FrameBuilder.build(ProtocolConstants.CMD_ATTR_SET, nextSeq(), payload)
-        withContext(ioDispatcher) { writeRaw(frame) }
-    }
-
     private fun requireAuthenticated() {
-        if (!authed.get()) throw IOException("not authenticated — run connect() first")
+        if (!authed.get()) throw IOException("not connected — run connect() first")
     }
 
-    /** The only sanctioned outbound path: framed + CRC'd. */
+    /** The only sanctioned outbound path. */
     private fun writeRaw(bytes: ByteArray) {
         val out = output ?: throw IOException("socket not connected")
         logWire("→ ${bytes.toHexString(48)}")

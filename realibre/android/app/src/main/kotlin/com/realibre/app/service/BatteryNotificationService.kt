@@ -62,7 +62,7 @@ class BatteryNotificationService : Service() {
             ACTION_CYCLE_ANC -> {
                 scope.launch {
                     val next = cycleNoiseMode(BudStateCache.noiseMode.value)
-                    runCatching { RfcommManager.setAttribute(ProtocolConstants.ATTR_NOISE_CONTROL, next) }
+                    runCatching { RfcommManager.setNoiseMode(next) }
                     BudStateCache.noiseMode.value = next
                 }
             }
@@ -81,9 +81,9 @@ class BatteryNotificationService : Service() {
     }
 
     private fun cycleNoiseMode(current: Int?): Int = when (current) {
-        ProtocolConstants.NOISE_ANC -> ProtocolConstants.NOISE_TRANSPARENCY
-        ProtocolConstants.NOISE_TRANSPARENCY -> ProtocolConstants.NOISE_OFF
-        else -> ProtocolConstants.NOISE_ANC
+        ProtocolConstants.ANC_ON -> ProtocolConstants.ANC_TRANSPARENCY
+        ProtocolConstants.ANC_TRANSPARENCY -> ProtocolConstants.ANC_OFF
+        else -> ProtocolConstants.ANC_ON
     }
 
     private fun createChannel() {
@@ -113,9 +113,9 @@ class BatteryNotificationService : Service() {
 
         val text = battery?.let { "L ${it.left}%  •  R ${it.right}%  •  Case ${it.case}%" } ?: "Tap refresh to poll buds"
         val title = when (BudStateCache.noiseMode.value) {
-            ProtocolConstants.NOISE_ANC -> "ANC on"
-            ProtocolConstants.NOISE_TRANSPARENCY -> "Transparency"
-            ProtocolConstants.NOISE_OFF -> "Noise off"
+            ProtocolConstants.ANC_ON -> "ANC on"
+            ProtocolConstants.ANC_TRANSPARENCY -> "Transparency"
+            ProtocolConstants.ANC_OFF -> "Noise off"
             else -> "RealiBre"
         }
 
