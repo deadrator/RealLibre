@@ -396,14 +396,14 @@ object RfcommManager {
                             }
                         }
                         ProtocolConstants.CMD_SUBSCRIPTION_RET -> {
-                            when (frame.payload.getOrNull(0)?.toInt() and 0xFF) {
+                            when ((frame.payload.getOrNull(0)?.toInt() ?: -1) and 0xFF) {
                                 ProtocolConstants.SUB_BATTERY -> {
                                     parseBatteryPayload(frame.payload)?.let {
                                         _incoming.emit(Incoming.BatteryLevel(it))
                                     }
                                 }
                                 ProtocolConstants.SUB_ANC_SELECTOR -> {
-                                    val mode = frame.payload.getOrNull(2)?.toInt() and 0xFF
+                                    val mode = (frame.payload.getOrNull(2)?.toInt() ?: -1) and 0xFF
                                     _incoming.emit(Incoming.NoiseModeChanged(mode))
                                 }
                                 ProtocolConstants.SUB_GAME_MODE -> {
@@ -413,9 +413,9 @@ object RfcommManager {
                         }
                         ProtocolConstants.CMD_ANC_CONFIG_RET -> {
                             // [status, type, ?, value]
-                            val type = frame.payload.getOrNull(1)?.toInt() and 0xFF
+                            val type = (frame.payload.getOrNull(1)?.toInt() ?: -1) and 0xFF
                             if (type == ProtocolConstants.ANC_TYPE_MODE) {
-                                val mode = frame.payload.getOrNull(3)?.toInt() and 0xFF
+                                val mode = (frame.payload.getOrNull(3)?.toInt() ?: -1) and 0xFF
                                 _incoming.emit(Incoming.NoiseModeChanged(mode))
                             }
                         }
