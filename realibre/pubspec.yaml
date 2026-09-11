@@ -13,7 +13,8 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
-  dynamic_color: ^1.7.0
+  # Pinned (not caret): 1.8+ requires AGP newer than this project's 8.1.
+  dynamic_color: 1.7.0
 
 dev_dependencies:
   flutter_test:
