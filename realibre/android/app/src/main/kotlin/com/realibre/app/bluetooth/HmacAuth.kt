@@ -1,5 +1,6 @@
 package com.realibre.app.bluetooth
 
+import java.io.IOException
 import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Mac
@@ -17,7 +18,9 @@ import javax.crypto.spec.SecretKeySpec
  */
 object HmacAuth {
 
-    class AuthException(message: String) : Exception(message)
+    /** IOException so its human-readable reason survives platform-channel
+     *  result.error() and reaches the Dart UI instead of being swallowed. */
+    class AuthException(message: String) : IOException(message)
 
     /** Fresh 16-byte cryptographically random client challenge. */
     fun newClientChallenge(random: SecureRandom = SecureRandom()): ByteArray {

@@ -83,4 +83,8 @@ object ProtocolConstants {
     const val BATTERY_LEFT: Int = 0
     const val BATTERY_RIGHT: Int = 1
     const val BATTERY_CASE: Int = 2
+
+    // Timeouts so a silent bud can never wedge the UI (ms).
+    const val CONNECT_TIMEOUT_MS: Long = 12_000L
+    const val HANDSHAKE_TIMEOUT_MS: Long = 8_000L
 }

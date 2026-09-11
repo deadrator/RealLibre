@@ -15,6 +15,11 @@ class BudController extends ChangeNotifier {
   BudController({BudChannels? channels}) : _channels = channels ?? budChannelsInstance;
 
   final BudChannels _channels;
+
+  /// Hard ceiling on any single platform call in the connect flow. If native
+  /// never answers (old build, wedged channel), the UI still recovers instead
+  /// of spinning on "Authenticating…" forever.
+  static const Duration _connectStepTimeout = Duration(seconds: 25);
   StreamSubscription<BudTelemetryEvent>? _sub;
   ConnectionState _state = ConnectionState.disconnected;
   BatterySnapshot _battery = const BatterySnapshot(left: 0, right: 0, caseLevel: 0, source: 'rfcomm');
@@ -59,10 +64,20 @@ class BudController extends ChangeNotifier {
 
   Future<bool> pairAndConnect() async {
     try {
-      if (!await _channels.isBonded()) {
-        await _channels.pair();
+      if (!await _channels.isBonded().timeout(_connectStepTimeout)) {
+        if (!await _channels.pair().timeout(_connectStepTimeout)) {
+          _lastError = 'Pairing was cancelled or failed';
+          notifyListeners();
+          return false;
+        }
       }
-      final ok = await _channels.connect();
+      final ok = await _channels.connect().timeout(
+            _connectStepTimeout,
+            onTimeout: () => throw PlatformException(
+              code: 'CONNECT_TIMEOUT',
+              message: 'Connection timed out — make sure the buds are on and in range, then retry',
+            ),
+          );
       if (ok) {
         _lastError = null;
         await refreshBattery();
@@ -73,11 +88,25 @@ class BudController extends ChangeNotifier {
       _lastError = e.message ?? e.code;
       notifyListeners();
       return false;
+    } on TimeoutException catch (e) {
+      _lastError = e.message ?? 'Connection timed out';
+      notifyListeners();
+      return false;
+    } catch (e) {
+      // Never let an unexpected native error escape: the pairing screen
+      // relies on a clean false to stop its spinner and show the message.
+      _lastError = e.toString();
+      notifyListeners();
+      return false;
     }
   }
 
   Future<void> disconnect() async {
-    await _channels.disconnect();
+    try {
+      await _channels.disconnect();
+    } on PlatformException catch (e) {
+      _lastError = e.message ?? e.code;
+    }
     _state = ConnectionState.disconnected;
     notifyListeners();
   }

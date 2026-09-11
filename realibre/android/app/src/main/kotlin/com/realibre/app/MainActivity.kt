@@ -91,13 +91,32 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
 
-                "isBonded" -> result.success(DevicePairer.isBonded(this))
+                "isBonded" -> result.success(
+                    // bondedDevices throws SecurityException when
+                    // BLUETOOTH_CONNECT isn't granted yet (e.g. right after the
+                    // permission dialog opens) — which would strand the Dart
+                    // await forever. Report "not bonded" instead.
+                    if (hasRequiredPermissions()) {
+                        runCatching { DevicePairer.isBonded(this) }.getOrDefault(false)
+                    } else {
+                        false
+                    },
+                )
 
                 "pair" -> scope.launch {
                     try {
+                        if (!hasRequiredPermissions()) {
+                            requestRequiredPermissions()
+                            result.error(
+                                "MISSING_PERMISSIONS",
+                                "Bluetooth permission not granted yet — accept the system dialog and retry",
+                                null,
+                            )
+                            return@launch
+                        }
                         result.success(DevicePairer.ensureBonded(applicationContext))
                     } catch (e: Exception) {
-                        result.error("PAIR_FAILED", e.message, null)
+                        result.error("PAIR_FAILED", e.message ?: e.javaClass.simpleName, null)
                     }
                 }
 
@@ -106,7 +125,9 @@ class MainActivity : FlutterActivity() {
                         RfcommManager.connect(applicationContext)
                         result.success(true)
                     } catch (e: Exception) {
-                        result.error("CONNECT_FAILED", e.message, null)
+                        // Always answer, even on unexpected throwables: a
+                        // missing reply is what leaves the UI spinner stuck.
+                        result.error("CONNECT_FAILED", e.message ?: e.javaClass.simpleName, null)
                     }
                 }
 

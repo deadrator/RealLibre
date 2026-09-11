@@ -50,6 +50,21 @@ class _HomeState extends State<_Home> {
   void initState() {
     super.initState();
     widget.controller.attach();
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  /// A dropped socket flips the controller state back to disconnected —
+  /// return to the pairing screen instead of freezing on a dead dashboard.
+  void _onControllerChanged() {
+    final connected = widget.controller.isConnected;
+    if (!mounted || connected == _connected) return;
+    setState(() => _connected = connected);
   }
 
   @override

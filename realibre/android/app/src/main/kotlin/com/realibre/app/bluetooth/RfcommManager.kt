@@ -10,9 +10,15 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -28,8 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launchimport kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -88,13 +93,20 @@ object RfcommManager {
     private val sequence = AtomicInteger(0)
     private val authed = AtomicBoolean(false)
     private var readerJob: kotlinx.coroutines.Job? = null
+    /** Bumped per connection attempt so stale reader loops can't tear down
+     *  a newer session's socket in their finally block. */
+    private val generation = AtomicLong(0)
+    /** Guards against the app and the QS tile dialing at the same time. */
+    private val connecting = AtomicBoolean(false)
 
     val isAuthenticated: Boolean get() = authed.get()
     val isConnected: Boolean get() = _state.value == ConnectionState.CONNECTED
 
     private fun nextSeq(): Int = sequence.incrementAndGet() and 0xFF
 
-    /** Connect, run the auth handshake, then start the reader loop. */
+    /** Connect, run the auth handshake, then start the reader loop.
+     *  Every blocking step is bounded by a timeout and runs off the main
+     *  thread, so a silent bud can never wedge or ANR the UI. */
     suspend fun connect(context: Context) {
         if (isConnected) return
         disconnect() // ensure clean slate
@@ -104,52 +116,84 @@ object RfcommManager {
         if (!adapter.isEnabled) throw IOException("bluetooth is off")
 
         val device: BluetoothDevice = adapter.getRemoteDevice(ProtocolConstants.DEVICE_MAC)
-        _state.value = ConnectionState.CONNECTING
-
-        val uuid = UUID.fromString(ProtocolConstants.SPP_UUID)
-        withContext(ioDispatcher) {
-            var lastError: Exception? = null
-            // SPP SDP lookup first, then insecure variant, then raw channel 1.
-            val attempts = listOf<() -> BluetoothSocket>(
-                { device.createRfcommSocketToServiceRecord(uuid) },
-                { device.createInsecureRfcommSocketToServiceRecord(uuid) },
-                {
-                    device.javaClass
-                        .getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                        .invoke(device, ProtocolConstants.RFCOMM_CHANNEL) as BluetoothSocket
-                },
-            )
-            for (attempt in attempts) {
-                try {
-                    val s = attempt()
-                    adapter.cancelDiscovery()
-                    s.connect()
-                    socket = s
-                    input = s.inputStream
-                    output = s.outputStream
-                    lastError = null
-                    break
-                } catch (e: Exception) {
-                    lastError = e
-                    Log.w(TAG, "connect attempt failed", e)
+        if (!connecting.compareAndSet(false, true)) {
+            throw IOException("connection already in progress")
+        }
+        val session = generation.incrementAndGet()
+        try {
+            _state.value = ConnectionState.CONNECTING
+            val uuid = UUID.fromString(ProtocolConstants.SPP_UUID)
+            withContext(ioDispatcher) {
+                var lastError: Exception? = null
+                // SPP SDP lookup first, then insecure variant, then raw channel 1.
+                val attempts = listOf<() -> BluetoothSocket>(
+                    { device.createRfcommSocketToServiceRecord(uuid) },
+                    { device.createInsecureRfcommSocketToServiceRecord(uuid) },
+                    {
+                        device.javaClass
+                            .getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                            .invoke(device, ProtocolConstants.RFCOMM_CHANNEL) as BluetoothSocket
+                    },
+                )
+                // Fresh thread per attempt: BluetoothSocket.connect() ignores
+                // SoTimeouts and can hang for minutes, and a timed-out dial
+                // stays blocked until its socket is closed from this side.
+                val dialExecutor = Executor { command ->
+                    Thread(command, "rfcomm-dial").apply { isDaemon = true }.start()
+                }
+                for (factory in attempts) {
+                    var dialSocket: BluetoothSocket? = null
+                    val future = CompletableFuture.supplyAsync({
+                        dialSocket = factory()
+                        adapter.cancelDiscovery()
+                        dialSocket!!.connect()
+                        dialSocket!!
+                    }, dialExecutor)
+                    try {
+                        val s = future.get(ProtocolConstants.CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                        socket = s
+                        input = s.inputStream
+                        output = s.outputStream
+                        lastError = null
+                        break
+                    } catch (e: TimeoutException) {
+                        future.cancel(true)
+                        // Closing the socket aborts the blocked connect() on the dial thread.
+                        try { dialSocket?.close() } catch (_: Exception) {}
+                        lastError = IOException("connect timed out after ${ProtocolConstants.CONNECT_TIMEOUT_MS / 1000}s")
+                        Log.w(TAG, "connect attempt timed out")
+                    } catch (e: ExecutionException) {
+                        try { dialSocket?.close() } catch (_: Exception) {}
+                        lastError = e.cause as? Exception ?: IOException(e.cause)
+                        Log.w(TAG, "connect attempt failed", e.cause)
+                    }
                     closeSocketQuietly()
                 }
+                lastError?.let { throw it }
             }
-            lastError?.let { throw IOException("RFCOMM connect failed", it) }
-        }
 
-        _state.value = ConnectionState.AUTHENTICATING
-        try {
-            runHandshake()
+            _state.value = ConnectionState.AUTHENTICATING
+            // Bounded handshake: on timeout the socket is closed by the outer
+            // catch below, which also unblocks the stuck read on rfcomm-io.
+            withTimeoutOrNull(ProtocolConstants.HANDSHAKE_TIMEOUT_MS) {
+                withContext(ioDispatcher) { runHandshake() }
+            } ?: throw IOException("auth handshake timed out after ${ProtocolConstants.HANDSHAKE_TIMEOUT_MS / 1000}s")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            closeSocketQuietly()
+            authed.set(false)
+            throw e
         } catch (e: Exception) {
             closeSocketQuietly()
+            authed.set(false)
             _state.value = ConnectionState.FAILED
-            throw IOException("auth handshake failed", e)
+            throw if (e is IOException) e else IOException("RFCOMM connect failed", e)
+        } finally {
+            connecting.set(false)
         }
 
         authed.set(true)
         _state.value = ConnectionState.CONNECTED
-        startReader()
+        startReader(session)
     }
 
     /** Cmd 0x01 → verify → Cmd 0x02 → expect Cmd 0x02 confirm. */
@@ -177,7 +221,7 @@ object RfcommManager {
         }
     }
 
-    private fun startReader() {
+    private fun startReader(session: Long) {
         readerJob?.cancel()
         readerJob = scope.launch(ioDispatcher) {
             val stream = input ?: return@launch
@@ -201,9 +245,17 @@ object RfcommManager {
                     }
                 }
             } finally {
-                if (isConnected) {
+                // The loop exits on EOF, read error, disconnect(), or state
+                // change — tear the session down in every case so the app can
+                // reconnect cleanly instead of sitting on a stale socket.
+                // A superseded reader (stale session) must not touch the
+                // current socket.
+                if (generation.get() == session) {
+                    closeSocketQuietly()
                     authed.set(false)
-                    _state.value = ConnectionState.DISCONNECTED
+                    if (_state.value == ConnectionState.CONNECTED) {
+                        _state.value = ConnectionState.DISCONNECTED
+                    }
                 }
             }
         }
