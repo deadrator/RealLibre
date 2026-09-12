@@ -95,7 +95,6 @@ enum VolumeEnhancer {
 
   const VolumeEnhancer(this.value, this.label, this.subtitle);
   final int value;
-  final int value;
   final String label;
   final String subtitle;
 }

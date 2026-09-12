@@ -26,24 +26,92 @@ Frames: `[0xAA][totalLen][0000][cmd u16 LE][seq][payloadLen u16 LE][payload]` �
 |---|---|
 | `0x0106` / `0x8106` | Battery request / reply (L/R/Case, true 1%, charging bit) |
 | `0x010C` / `0x810C` | ANC config query / reply |
-| `0x0404` / `0x8404` | ANC config set / ack — payload `[type=MODE, 0x01, value]` |
-| `0x010D` / `0x810D` | Misc config query / reply (game mode, multipoint) |
+| `0x0404` / `0x8404` | ANC config set / ack — payload `[type, 0x01, value]` |
+| `0x010D` / `0x810D` | Misc config query / reply |
 | `0x0403` / `0x8403` | Misc config set / ack — payload `[type, value]` |
 | `0x0205` / `0x8205` | Subscribe to push updates (battery, ANC selector, game mode) |
 | `0x0204` | Pushed subscription updates |
 | `0x0105` / `0x8105` | Firmware version |
 | `0x0400` / `0x8400` | Find device (locator tone) |
+| `0x0108` / `0x8108` | Touch/button config query / reply |
 
-ANC mode values: `0x01` off, `0x02` transparency, `0x08` ANC (not 0/1/2!). Battery payload: `[status, count, (index, level)...]` with index 1=L, 2=R, 3=case and `level & 0x7F` percent, `& 0x80` charging flag.
+## Wire values (ProtocolConstants.kt ⇄ bud_enums.dart)
+
+The two tables **must** stay in sync — the Dart enums mirror the Kotlin constants 1:1.
+
+### ANC modes (`ANC_CONFIG_SET`, type `0x01`)
+
+| Mode | Hex | Dart enum (`NoiseMode`) |
+|---|---|---|
+| Off | `0x01` | `NoiseMode.off` |
+| Transparency | `0x02` | `NoiseMode.transparency` |
+| Noise cancellation (ANC) | `0x08` | `NoiseMode.anc` |
+
+> NOT 0/1/2 — that was the wrong old spec. `0x08` for ANC is the real value.
+
+### ANC sub-level (`ANC_CONFIG_SET`, type `0x14` — "Noise cancellation" depth)
+
+| Level | Hex | Dart enum (`AncCycleMode`) |
+|---|---|---|
+| Mild | `0x00` | `AncCycleMode.mild` |
+| Moderate | `0x01` | `AncCycleMode.moderate` |
+| Deep | `0x02` | `AncCycleMode.deep` |
+
+### Misc config types (`MISC_CONFIG_SET` / `MISC_CONFIG_REQ`, payload `[type, value]`)
+
+| Feature | Type hex | Values | Dart enum |
+|---|---|---|---|
+| Game mode (low latency) | `0x06` | `0x00` off / `0x01` on | `GameMode` |
+| EQ mode | `0x0A` | `0x00` Default / `0x01` Bass Boost+ / `0x02` Clear Bass / `0x03` Clear Vocals | `EQMode` |
+| Volume enhancer | `0x0E` | `0x00` off / `0x01` on | `VolumeEnhancer` |
+| Spatial Audio (360°) | `0x10` | `0x00` off / `0x01` on | `SpatialAudio` |
+| Dual-device connection (multipoint) | `0x11` | `0x00` off / `0x01` on | `MultipointMode` |
+| Wind noise reduction | `0x12` | `0x00` off / `0x01` on | `WindNoiseReduction` |
+| Enhance voices | `0x13` | `0x00` off / `0x01` on | `EnhanceVoices` |
+| Earbud fit test (fit sweep) | `0x15` | `0x01` trigger | `FitSweepCmd` |
+
+### Subscription types (`SUBSCRIPTION_SET`, payload `[count, types…]`)
+
+| Type | Hex | Pushes |
+|---|---|---|
+| Battery | `0x01` | `BATTERY_RET` frames on change |
+| Status | `0x02` | in-ear / case events |
+| ANC selector | `0x03` | mode changed on-bud |
+| Game mode | `0x05` | game mode toggled elsewhere |
+
+Battery payload: `[status, count, (index, level)...]` with index `0x01`=L, `0x02`=R, `0x03`=case; `level & 0x7F` = percent, `& 0x80` = charging flag.
 
 ## App layout
 
 - **Pairing screen** — only shown when the buds were never bonded or a reconnect failed; the app auto-connects on launch.
-- **Dashboard** — a compact earbud **status bar at ~1/4 screen height** showing current ANC mode and mini L/R/Case battery fills; tapping it expands the full settings (noise selector, EQ, effects toggles) with an animated crossfade.
+- **Dashboard** — a compact earbud **status bar at ~1/4 screen height** showing current ANC mode and mini L/R/Case battery fills; tapping it expands the full settings with an animated crossfade:
+  - **Noise control card** (`noise_control_selector.dart`) — three circular mode buttons (Off / Noise cancellation / Transparency) mirroring Realme Link; when ANC is active, a sub-level row of Mild / Moderate / Deep chips appears (`setAncCycleMode`).
+  - **Sound effects card** (`sound_effects_card.dart`) — EQ mode picker (dialog with the 4 presets), Spatial Audio, Volume enhancer, Dynamic audio, Enhance voices, Wind noise reduction toggles.
+  - **Device features card** — Dual-device connection (multipoint), Game mode, Earbud fit test (fires `0x15` fit sweep), Find my buds (locator tone).
+  - **Keep alive** toggle — whether to hold the RFCOMM socket when the app is backgrounded.
 - **Notification** — ongoing low-priority battery notification with a quick ANC-cycle action.
 - **Quick Settings tile** — cycles ANC → Transparency → Off through the same authenticated connection.
 - **Fast Pair popup button** — queries fresh 1% battery and re-fires the GMS Nearby battery broadcast with exact values (see limitation below).
 - **Wire debug console** — every RFCOMM frame as a hex dump, in-app (dashboard bug icon).
+
+## Feature flow (UI → wire)
+
+| UI control | Dart call | Platform channel | Native call | Wire frame |
+|---|---|---|---|---|
+| Noise mode buttons | `controller.setNoiseMode(mode)` | `setNoiseMode {value}` | `RfcommManager.setNoiseMode` | `0x0404 [01 01 value]` |
+| Mild/Moderate/Deep chips | `controller.setAncCycleMode(level)` | `setAncCycleMode {value}` | `RfcommManager.setAncCycleMode` | `0x0404 [14 01 value]` |
+| EQ preset dialog | `controller.setEQMode(mode)` | `setMiscConfig {type:0x0A, value}` | `RfcommManager.setMiscConfig` | `0x0403 [0A value]` |
+| Spatial Audio toggle | `controller.setSpatialAudio(on)` | `setMiscConfig {type:0x10, value}` | `RfcommManager.setMiscConfig` | `0x0403 [10 value]` |
+| Volume enhancer toggle | `controller.setVolumeEnhancer(on)` | `setMiscConfig {type:0x0E, value}` | `RfcommManager.setMiscConfig` | `0x0403 [0E value]` |
+| Enhance voices toggle | `controller.setEnhanceVoices(on)` | `setMiscConfig {type:0x13, value}` | `RfcommManager.setMiscConfig` | `0x0403 [13 value]` |
+| Wind reduction toggle | `controller.setWindNoiseReduction(on)` | `setMiscConfig {type:0x12, value}` | `RfcommManager.setMiscConfig` | `0x0403 [12 value]` |
+| Dual-device toggle | `controller.setMultipoint(on)` | `setMultipoint {enabled}` | `RfcommManager.setMultipoint` | `0x0403 [11 value]` |
+| Game mode toggle | `controller.setGameMode(on)` | `setGameMode {enabled}` | `RfcommManager.setGameMode` | `0x0403 [06 value]` |
+| Earbud fit test | `controller.triggerFitSweep()` | `triggerFitSweep` | `RfcommManager.triggerFitSweep` | `0x0403 [15 01]` |
+| Find my buds | `controller.findDevice()` | `findDevice` | `RfcommManager.findDevice` | `0x0400 [01]` then `[00]` |
+| Battery refresh | `controller.refreshBattery()` | `queryBattery` | `RfcommManager.queryBattery` | `0x0106` → `0x8106` |
+
+All writes funnel through `BudChannels` (`method_channels.dart`) → `MainActivity` → `RfcommManager` → the single sanctioned `writeRaw` → `FrameBuilder.build`. No caller can bypass the framing.
 
 ## Building
 
@@ -70,6 +138,7 @@ Push to `main` or open a PR — [.github/workflows/build-apk.yml](.github/workfl
 
 ```
 realibre/
+├── .github/workflows/build-apk.yml   # CI: analyze + test + release APK
 ├── android/app/src/main/
 │   ├── AndroidManifest.xml
 │   └── kotlin/com/realibre/app/
@@ -77,7 +146,8 @@ realibre/
 │       ├── bluetooth/
 │       │   ├── ProtocolConstants.kt   # wire protocol constants (Kotlin truth)
 │       │   ├── FrameBuilder.kt        # 0xAA frame build/parse
-│       │   └── RfcommManager.kt       # single socket owner + init sequence
+│       │   ├── RfcommManager.kt       # single socket owner + init sequence
+│       │   └── BudStateCache.kt       # shared state for tile/notification
 │       ├── service/
 │       │   ├── BatteryNotificationService.kt
 │       │   ├── BluetoothStateReceiver.kt
@@ -85,13 +155,19 @@ realibre/
 │       └── pairing/DevicePairer.kt
 ├── lib/
 │   ├── main.dart
-│   ├── core/{constants/bud_enums.dart, platform/method_channels.dart}
-│   ├── state/bud_controller.dart
-│   ├── ui/
-│   │   ├── theme/app_theme.dart
-│   │   ├── screens/{dashboard_screen,pairing_screen}.dart
-│   │   └── widgets/{battery_card,noise_control_selector,sound_effects_card}.dart
-│   └── models/bud_telemetry.dart
+│   ├── core/
+│   │   ├── constants/bud_enums.dart   # mirrors ProtocolConstants.kt 1:1
+│   │   └── platform/method_channels.dart
+│   ├── state/bud_controller.dart      # ChangeNotifier: state + commands
+│   ├── models/bud_telemetry.dart
+│   └── ui/
+│       ├── theme/app_theme.dart
+│       ├── screens/{dashboard_screen,pairing_screen}.dart
+│       └── widgets/
+│           ├── battery_card.dart
+│           ├── noise_control_selector.dart  # circular modes + ANC sub-level chips
+│           └── sound_effects_card.dart      # EQ/Spatial/Volume/Voices/Wind
+├── test/bud_enums_test.dart
 ├── assets/icons/
 ├── pubspec.yaml
 └── .gitignore

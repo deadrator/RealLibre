@@ -60,6 +60,7 @@ object ProtocolConstants {
     // ANC config types (first payload byte of ANC_CONFIG_*)
     const val ANC_TYPE_MODE: Int = 0x01
     const val ANC_TYPE_TOUCH_CYCLE_MODES: Int = 0x02
+    const val ANC_TYPE_CYCLE_MODE: Int = 0x14
 
     // ANC mode values (MODE). NOTE: not 0/1/2 — 0x01=off, 0x02=transparency, 0x08=ANC.
     const val ANC_OFF: Int = 0x01
@@ -81,10 +82,6 @@ object ProtocolConstants {
     const val MISC_ENHANCE_VOICES: Int = 0x13
     const val MISC_MULTIPOINT: Int = 0x11
     const val MISC_FIT_SWEEP: Int = 0x15
-
-    // ANC config types (ANC_CONFIG_SET payload: [ANC_TYPE_*, 0x01, value])
-    const val ANC_TYPE_MODE: Int = 0x01
-    const val ANC_TYPE_CYCLE_MODE: Int = 0x14
 
     // ANC cycle (sub-level) values for ANC_TYPE_CYCLE_MODE
     const val ANC_CYCLE_MILD: Int = 0x00
