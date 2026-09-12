@@ -47,7 +47,7 @@ class SoundEffectsCard extends StatelessWidget {
             const Divider(height: 1, indent: 44),
             // The protocol has no known misc type for this on T310 yet;
             // shown disabled until a wire value is confirmed.
-            _FeatureTile(
+            const _FeatureTile(
               icon: Icons.auto_awesome_rounded,
               label: 'Dynamic audio',
               subtitle: 'Adaptive sound tuned to your environment.',

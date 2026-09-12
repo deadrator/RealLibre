@@ -69,14 +69,14 @@ class NoiseControlSelector extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 14),
-            _ToggleRow(
+            const _ToggleRow(
               icon: Icons.person_2_rounded,
               title: 'Enhance voices',
               subtitle: 'Diminish ambient sounds and enhance voices.',
               value: false,
               onChanged: null,
             ),
-            _ToggleRow(
+            const _ToggleRow(
               icon: Icons.air_rounded,
               title: 'Wind noise reduction',
               subtitle: "Effectively reduce noises from the wind when the wind speed picks up. The earbud's noise cancellation feature will be affected.",
