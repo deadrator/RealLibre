@@ -306,6 +306,19 @@ object RfcommManager {
         }
     }
 
+    /** ANC sub-level set: payload [ANC_TYPE_CYCLE_MODE, 0x01, value] (Mild/Moderate/Deep). */
+    suspend fun setAncCycleMode(value: Int) {
+        requireAuthenticated()
+        val payload = byteArrayOf(
+            ProtocolConstants.ANC_TYPE_CYCLE_MODE.toByte(),
+            0x01,
+            value.toByte(),
+        )
+        withContext(ioDispatcher) {
+            writeRaw(FrameBuilder.build(ProtocolConstants.CMD_ANC_CONFIG_SET, FrameBuilder.nextSequence(), payload))
+        }
+    }
+
     /** Game (low latency) mode on/off via MISC_CONFIG_SET. */
     suspend fun setGameMode(enabled: Boolean) {
         requireAuthenticated()
@@ -332,6 +345,39 @@ object RfcommManager {
                 FrameBuilder.build(
                     ProtocolConstants.CMD_FIND_DEVICE_REQ, FrameBuilder.nextSequence(),
                     byteArrayOf(if (start) 0x01 else 0x00),
+                ),
+            )
+        }
+    }
+
+    /**
+     * T310 fit-test / fit-sweep trigger (MISC_CONFIG_SET, type 0x15).
+     * In Realme Link this is mapped to "Earbud fit test" / "Button settings".
+     */
+    suspend fun triggerFitSweep() {
+        requireAuthenticated()
+        withContext(ioDispatcher) {
+            writeRaw(
+                FrameBuilder.build(
+                    ProtocolConstants.CMD_MISC_CONFIG_SET, FrameBuilder.nextSequence(),
+                    byteArrayOf(ProtocolConstants.MISC_FIT_SWEEP.toByte(), 0x01),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Generic misc config writer for settings that use MISC_CONFIG_SET with
+     * [type, value] (EQ mode, spatial audio, volume enhancer, wind reduction,
+     * enhance voices, multipoint, game mode, fit sweep).
+     */
+    suspend fun setMiscConfig(type: Int, value: Int) {
+        requireAuthenticated()
+        withContext(ioDispatcher) {
+            writeRaw(
+                FrameBuilder.build(
+                    ProtocolConstants.CMD_MISC_CONFIG_SET, FrameBuilder.nextSequence(),
+                    byteArrayOf(type.toByte(), value.toByte()),
                 ),
             )
         }
@@ -423,8 +469,13 @@ object RfcommManager {
                             for (j in 2 until frame.payload.size - 1 step 2) {
                                 val type = frame.payload[j].toInt() and 0xFF
                                 val value = frame.payload[j + 1].toInt() and 0xFF
-                                if (type == ProtocolConstants.MISC_GAME_MODE) {
-                                    _incoming.emit(Incoming.GameModeChanged(value == 1))
+                                when (type) {
+                                    ProtocolConstants.MISC_GAME_MODE -> {
+                                        _incoming.emit(Incoming.GameModeChanged(value == 1))
+                                    }
+                                    ProtocolConstants.MISC_MULTIPOINT -> {
+                                        _incoming.emit(Incoming.NoiseModeChanged(if (value == 1) 0x01 else 0x00))
+                                    }
                                 }
                             }
                         }

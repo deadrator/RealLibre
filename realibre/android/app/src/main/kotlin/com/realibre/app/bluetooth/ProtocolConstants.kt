@@ -73,6 +73,21 @@ object ProtocolConstants {
     const val SUB_GAME_MODE: Int = 0x05
 
     // Misc config types (MISC_CONFIG_SET payload: [type, value])
+    const val MISC_EQU_MODE: Int = 0x0A
+    const val MISC_VOLUME_ENHANCER: Int = 0x0E
     const val MISC_GAME_MODE: Int = 0x06
+    const val MISC_SPATIAL_AUDIO: Int = 0x10
+    const val MISC_WIND_NOISE_REDUCTION: Int = 0x12
+    const val MISC_ENHANCE_VOICES: Int = 0x13
     const val MISC_MULTIPOINT: Int = 0x11
+    const val MISC_FIT_SWEEP: Int = 0x15
+
+    // ANC config types (ANC_CONFIG_SET payload: [ANC_TYPE_*, 0x01, value])
+    const val ANC_TYPE_MODE: Int = 0x01
+    const val ANC_TYPE_CYCLE_MODE: Int = 0x14
+
+    // ANC cycle (sub-level) values for ANC_TYPE_CYCLE_MODE
+    const val ANC_CYCLE_MILD: Int = 0x00
+    const val ANC_CYCLE_MODERATE: Int = 0x01
+    const val ANC_CYCLE_DEEP: Int = 0x02
 }

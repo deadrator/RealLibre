@@ -68,9 +68,29 @@ void main() {
       expect(NoiseMode.fromValue(0x99), NoiseMode.off);
     });
 
+    test('ANC cycle mode values', () {
+      expect(AncCycleMode.mild.value, 0x00);
+      expect(AncCycleMode.moderate.value, 0x01);
+      expect(AncCycleMode.deep.value, 0x02);
+    });
+
     test('game + multipoint flags', () {
       expect(GameMode.on.value, 0x01);
       expect(MultipointMode.on.value, 0x01);
+    });
+
+    test('EQ mode values', () {
+      expect(EQMode.default_.value, 0x00);
+      expect(EQMode.bassBoost.value, 0x01);
+      expect(EQMode.clearBass.value, 0x02);
+      expect(EQMode.clearVocals.value, 0x03);
+    });
+
+    test('spatial audio, volume enhancer, enhance voices, wind reduction', () {
+      expect(SpatialAudio.on.value, 0x01);
+      expect(VolumeEnhancer.on.value, 0x01);
+      expect(EnhanceVoices.on.value, 0x01);
+      expect(WindNoiseReduction.on.value, 0x01);
     });
   });
 

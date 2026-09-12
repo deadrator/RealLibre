@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/services.dart';
 
-import '../../core/platform/method_channels.dart';
+import '../../core/constants/bud_enums.dart';
 import '../../state/bud_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/noise_control_selector.dart';
@@ -221,29 +221,38 @@ class _DashboardBodyState extends State<_DashboardBody> {
                   crossFadeState:
                       _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
                   firstChild: const SizedBox(width: double.infinity),
-                  secondChild: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    child: Column(
-                      children: [
-                        NoiseControlSelector(
-                          mode: controller.noiseMode,
-                          onChanged: controller.setNoiseMode,
-                          enabled: connected,
-                        ),
-                        const SizedBox(height: 12),
-                        SoundEffectsCard(controller: controller),
-                        const SizedBox(height: 12),
-                        // Keep alive in background
-                        Card(
-                          margin: EdgeInsets.zero,
-                          child: SwitchListTile(
-                            title: const Text('Keep connection in background'),
-                            subtitle: const Text('Stay paired when the app is hidden'),
-                            value: controller.keepAlive,
-                            onChanged: connected ? controller.setKeepAlive : null,
+                  secondChild: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      child: Column(
+                        children: [
+                          // Noise control card
+                          NoiseControlSelector(
+                            mode: controller.noiseMode,
+                            ancCycleMode: controller.ancCycleMode,
+                            onModeChanged: controller.setNoiseMode,
+                            onCycleModeChanged: controller.setAncCycleMode,
+                            enabled: connected,
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 12),
+                          // Sound effects card
+                          SoundEffectsCard(controller: controller),
+                          const SizedBox(height: 12),
+                          // Device features card
+                          _DeviceFeaturesCard(controller: controller, connected: connected),
+                          const SizedBox(height: 12),
+                          // Keep alive in background
+                          Card(
+                            margin: EdgeInsets.zero,
+                            child: SwitchListTile(
+                              title: const Text('Keep connection in background'),
+                              subtitle: const Text('Stay paired when the app is hidden'),
+                              value: controller.keepAlive,
+                              onChanged: connected ? controller.setKeepAlive : null,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -260,6 +269,157 @@ class _DashboardBodyState extends State<_DashboardBody> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Device features card matching realme Link app layout.
+class _DeviceFeaturesCard extends StatelessWidget {
+  const _DeviceFeaturesCard({required this.controller, required this.connected});
+
+  final BudController controller;
+  final bool connected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Device features', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12),
+            // Dual-device connection (Multipoint)
+            _FeatureTile(
+              icon: Icons.phonelink_circle_rounded,
+              title: 'Dual-device connection',
+              subtitle: 'Connect 2 devices at the same time and switch between them easily.',
+              value: controller.multipoint,
+              onChanged: connected ? (v) => controller.setMultipoint(v) : null,
+            ),
+            const Divider(height: 1, color: Colors.divider, indent: 44),
+            // Game mode
+            _FeatureTile(
+              icon: Icons.videogame_asset_rounded,
+              title: 'Game mode',
+              subtitle: 'Provides a seamless gaming experience with reduced latency.',
+              value: controller.gameMode,
+              onChanged: connected ? (v) => controller.setGameMode(v) : null,
+            ),
+            const Divider(height: 1, color: Colors.divider, indent: 44),
+            // Earbud fit test
+            _ActionTile(
+              icon: Icons.menu_open_rounded,
+              title: 'Earbud fit test',
+              subtitle: 'Choose ear tips that make a good seal with your ear canals.',
+              onTap: connected ? controller.triggerFitSweep : null,
+            ),
+            const Divider(height: 1, color: Colors.divider, indent: 44),
+            // Find my buds
+            _ActionTile(
+              icon: Icons.location_searching_rounded,
+              title: 'Find my buds',
+              subtitle: 'Play locator tone to find your earbuds.',
+              onTap: connected ? controller.findDevice : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FeatureTile extends StatelessWidget {
+  const _FeatureTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.bodyLarge),
+                Text(subtitle, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.bodyLarge),
+                Text(subtitle, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          Icon(
+            Icons.chevron_right_rounded,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ],
+      ),
     );
   }
 }

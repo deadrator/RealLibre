@@ -26,6 +26,12 @@ class BudController extends ChangeNotifier {
   NoiseMode _noiseMode = NoiseMode.off;
   bool _gameMode = false;
   bool _multipoint = false;
+  AncCycleMode _ancCycleMode = AncCycleMode.mild;
+  EQMode _eqMode = EQMode.default_;
+  bool _spatialAudio = false;
+  bool _volumeEnhancer = false;
+  bool _enhanceVoices = false;
+  bool _windNoiseReduction = false;
 
   /// Ring buffer of native wire-debug lines (hex frames, handshake steps)
   /// shown on the dashboard's debug console — diagnosing a wrong protocol
@@ -42,6 +48,12 @@ class BudController extends ChangeNotifier {
   NoiseMode get noiseMode => _noiseMode;
   bool get gameMode => _gameMode;
   bool get multipoint => _multipoint;
+  AncCycleMode get ancCycleMode => _ancCycleMode;
+  EQMode get eqMode => _eqMode;
+  bool get spatialAudio => _spatialAudio;
+  bool get volumeEnhancer => _volumeEnhancer;
+  bool get enhanceVoices => _enhanceVoices;
+  bool get windNoiseReduction => _windNoiseReduction;
   String? get lastError => _lastError;
   bool get keepAlive => _keepAlive;
   bool get isConnected => _state == ConnectionState.connected;
@@ -209,6 +221,112 @@ class BudController extends ChangeNotifier {
       _lastError = null;
     } on PlatformException catch (e) {
       _noiseMode = prev;
+      _lastError = e.message ?? e.code;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setAncCycleMode(AncCycleMode mode) async {
+    final prev = _ancCycleMode;
+    _ancCycleMode = mode;
+    notifyListeners();
+    try {
+      await _channels.setAncCycleMode(mode);
+      _lastError = null;
+    } on PlatformException catch (e) {
+      _ancCycleMode = prev;
+      _lastError = e.message ?? e.code;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setEQMode(EQMode mode) async {
+    final prev = _eqMode;
+    _eqMode = mode;
+    notifyListeners();
+    try {
+      await _channels.setMiscConfig(EQMode.default_.value, mode.value);
+      _lastError = null;
+    } on PlatformException catch (e) {
+      _eqMode = prev;
+      _lastError = e.message ?? e.code;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setSpatialAudio(bool on) async {
+    final prev = _spatialAudio;
+    _spatialAudio = on;
+    notifyListeners();
+    try {
+      await _channels.setMiscConfig(
+        SpatialAudio.on.value,
+        on ? SpatialAudio.on.value : SpatialAudio.off.value,
+      );
+      _lastError = null;
+    } on PlatformException catch (e) {
+      _spatialAudio = prev;
+      _lastError = e.message ?? e.code;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setVolumeEnhancer(bool on) async {
+    final prev = _volumeEnhancer;
+    _volumeEnhancer = on;
+    notifyListeners();
+    try {
+      await _channels.setMiscConfig(
+        VolumeEnhancer.on.value,
+        on ? VolumeEnhancer.on.value : VolumeEnhancer.off.value,
+      );
+      _lastError = null;
+    } on PlatformException catch (e) {
+      _volumeEnhancer = prev;
+      _lastError = e.message ?? e.code;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setEnhanceVoices(bool on) async {
+    final prev = _enhanceVoices;
+    _enhanceVoices = on;
+    notifyListeners();
+    try {
+      await _channels.setMiscConfig(
+        EnhanceVoices.on.value,
+        on ? EnhanceVoices.on.value : EnhanceVoices.off.value,
+      );
+      _lastError = null;
+    } on PlatformException catch (e) {
+      _enhanceVoices = prev;
+      _lastError = e.message ?? e.code;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setWindNoiseReduction(bool on) async {
+    final prev = _windNoiseReduction;
+    _windNoiseReduction = on;
+    notifyListeners();
+    try {
+      await _channels.setMiscConfig(
+        WindNoiseReduction.on.value,
+        on ? WindNoiseReduction.on.value : WindNoiseReduction.off.value,
+      );
+      _lastError = null;
+    } on PlatformException catch (e) {
+      _windNoiseReduction = prev;
+      _lastError = e.message ?? e.code;
+    }
+    notifyListeners();
+  }
+
+  Future<void> triggerFitSweep() async {
+    try {
+      await _channels.triggerFitSweep();
+      _lastError = null;
+    } on PlatformException catch (e) {
       _lastError = e.message ?? e.code;
     }
     notifyListeners();

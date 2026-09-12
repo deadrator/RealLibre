@@ -112,6 +112,9 @@ class BudChannels {
   Future<void> setNoiseMode(NoiseMode mode) =>
       _methods.invokeMethod('setNoiseMode', {'value': mode.value});
 
+  Future<void> setAncCycleMode(AncCycleMode mode) =>
+      _methods.invokeMethod('setAncCycleMode', {'value': mode.value});
+
   Future<void> setGameMode(bool on) =>
       _methods.invokeMethod('setGameMode', {'enabled': on});
 
@@ -120,6 +123,15 @@ class BudChannels {
 
   /// Make the buds play their locator tone for ~3 seconds.
   Future<void> findDevice() => _methods.invokeMethod('findDevice');
+
+  /// Trigger the earbud fit-sweep command (MISC_CONFIG_SET, type 0x15).
+  Future<void> triggerFitSweep() => _methods.invokeMethod('triggerFitSweep');
+
+  /// Generic misc config write: [type, value] via MISC_CONFIG_SET.
+  /// Used for EQ mode, spatial audio, volume enhancer, wind reduction, enhance
+  /// voices, multipoint, game mode, fit sweep.
+  Future<void> setMiscConfig(int type, int value) =>
+      _methods.invokeMethod('setMiscConfig', {'type': type, 'value': value});
 
   /// Query fresh 1% battery and fire the Fast Pair battery broadcast with the
   /// precise values. Returns true when the broadcast was accepted.

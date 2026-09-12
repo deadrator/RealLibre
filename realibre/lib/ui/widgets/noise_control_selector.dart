@@ -4,19 +4,22 @@ import 'package:flutter/services.dart';
 import '../../core/constants/bud_enums.dart';
 import '../theme/app_theme.dart';
 
-/// Three-state noise control selector (Off / ANC / Transparency).
-/// Switching modes crossfades/slides the mode art at 350ms easeOutCubic and
-/// fires a light haptic, mirroring the QS tile behavior.
+/// Noise control selector matching realme Link app layout.
+/// Shows ANC mode selection + ANC sub-level (Mild/Moderate/Deep) when ANC is active.
 class NoiseControlSelector extends StatelessWidget {
   const NoiseControlSelector({
     super.key,
     required this.mode,
-    required this.onChanged,
+    required this.ancCycleMode,
+    required this.onModeChanged,
+    required this.onCycleModeChanged,
     this.enabled = true,
   });
 
   final NoiseMode mode;
-  final ValueChanged<NoiseMode> onChanged;
+  final AncCycleMode ancCycleMode;
+  final ValueChanged<NoiseMode> onModeChanged;
+  final ValueChanged<AncCycleMode> onCycleModeChanged;
   final bool enabled;
 
   @override
@@ -35,46 +38,110 @@ class NoiseControlSelector extends StatelessWidget {
             const SizedBox(height: 4),
             Text('ANC_CONFIG_SET · MODE', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(height: 14),
-            // Animated mode art: crossfade + slide between the three modes.
-            SizedBox(
-              height: 56,
-              width: double.infinity,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 350),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, animation) {
-                  final slide = Tween<Offset>(begin: const Offset(0, 0.35), end: Offset.zero)
-                      .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(position: slide, child: child),
-                  );
-                },
-                child: _ModeArt(key: ValueKey(mode), mode: mode, accent: accent),
-              ),
+            // Three circular mode buttons (like realme Link)
+            _ModeButtonRow(
+              mode: mode,
+              accent: accent,
+              onModeChanged: enabled ? onModeChanged : null,
             ),
-            const SizedBox(height: 14),
-            SegmentedButton<NoiseMode>(
-              segments: [
-                for (final m in NoiseMode.values)
-                  ButtonSegment(
-                    value: m,
-                    icon: Icon(_iconFor(m)),
-                    label: Text(m.label),
+            const SizedBox(height: 16),
+            // ANC sub-level selector (like realme Link)
+            if (mode == NoiseMode.anc) ...[
+              Text('Noise cancellation', style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Text(ancCycleMode.subtitle, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _AncCycleChip(
+                    label: AncCycleMode.mild.label,
+                    isSelected: ancCycleMode == AncCycleMode.mild,
+                    onTap: enabled ? () => onCycleModeChanged(AncCycleMode.mild) : null,
                   ),
-              ],
-              selected: {mode},
-              onSelectionChanged: enabled
-                  ? (selection) {
-                      HapticFeedback.selectionClick();
-                      onChanged(selection.first);
-                    }
-                  : null,
+                  const SizedBox(width: 8),
+                  _AncCycleChip(
+                    label: AncCycleMode.moderate.label,
+                    isSelected: ancCycleMode == AncCycleMode.moderate,
+                    onTap: enabled ? () => onCycleModeChanged(AncCycleMode.moderate) : null,
+                  ),
+                  const SizedBox(width: 8),
+                  _AncCycleChip(
+                    label: AncCycleMode.deep.label,
+                    isSelected: ancCycleMode == AncCycleMode.deep,
+                    onTap: enabled ? () => onCycleModeChanged(AncCycleMode.deep) : null,
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 14),
+            // Toggle row for enhance voices (like realme Link)
+            _ToggleRow(
+              icon: Icons.person_2_rounded,
+              title: 'Enhance voices',
+              subtitle: 'Diminish ambient sounds and enhance voices',
+              value: false,
+              onChanged: enabled ? (v) {} : null,
+            ),
+            const SizedBox(height: 8),
+            // Toggle row for wind noise reduction (like realme Link)
+            _ToggleRow(
+              icon: Icons.air_rounded,
+              title: 'Wind noise reduction',
+              subtitle: 'Effectively reduce noises from the wind when the wind speed picks up. The earbud\'s noise cancellation feature will be affected.',
+              value: false,
+              onChanged: enabled ? (v) {} : null,
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ModeButtonRow extends StatelessWidget {
+  const _ModeButtonRow({
+    required this.mode,
+    required this.accent,
+    required this.onModeChanged,
+  });
+
+  final NoiseMode mode;
+  final Color accent;
+  final ValueChanged<NoiseMode>? onModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: NoiseMode.values.map((m) {
+        final isSelected = m == mode;
+        final color = isSelected ? accent : theme.colorScheme.onSurfaceVariant;
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: InkWell(
+              onTap: onModeChanged != null ? () => onModeChanged!(m) : null,
+              borderRadius: BorderRadius.circular(28),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isSelected ? accent.withOpacity(0.2) : Colors.transparent,
+                  border: Border.all(
+                    color: isSelected ? accent : theme.colorScheme.outline,
+                    width: isSelected ? 2 : 1,
+                  ),
+                ),
+                child: Icon(
+                  _iconFor(m),
+                  size: 24,
+                  color: isSelected ? accent : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -85,31 +152,83 @@ class NoiseControlSelector extends StatelessWidget {
       };
 }
 
-class _ModeArt extends StatelessWidget {
-  const _ModeArt({super.key, required this.mode, required this.accent});
+class _AncCycleChip extends StatelessWidget {
+  const _AncCycleChip({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
 
-  final NoiseMode mode;
-  final Color accent;
+  final String label;
+  final bool isSelected;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.85, end: 1.0),
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeOutCubic,
-          builder: (context, scale, child) =>
-              Transform.scale(scale: scale, child: Icon(mode.icon, size: 36, color: accent)),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? Colors.blue : theme.colorScheme.outline.withOpacity(0.3),
+          ),
         ),
-        const SizedBox(width: 12),
-        Text(
-          mode.subtitle,
-          style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.blue : theme.colorScheme.onSurfaceVariant,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class _ToggleRow extends StatelessWidget {
+  const _ToggleRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.bodyLarge),
+                Text(subtitle, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant), maxLines: 2, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -120,4 +239,8 @@ extension on NoiseMode {
         NoiseMode.anc => Icons.headphones_rounded,
         NoiseMode.transparency => Icons.hearing_rounded,
       };
+}
+
+extension on AncCycleMode {
+  IconData get icon => Icons.slider_rounded;
 }
