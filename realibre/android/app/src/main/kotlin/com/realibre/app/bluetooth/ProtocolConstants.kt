@@ -73,18 +73,19 @@ object ProtocolConstants {
     const val SUB_ANC_SELECTOR: Int = 0x03
     const val SUB_GAME_MODE: Int = 0x05
 
-    // Misc config types (MISC_CONFIG_SET payload: [type, value])
-    const val MISC_EQU_MODE: Int = 0x0A
-    const val MISC_VOLUME_ENHANCER: Int = 0x0E
+    //
+    // Misc config types (MISC_CONFIG_SET payload: [type, value]).
+    // CONFIRMED from Gadgetbridge MiscConfigType.java — the ONLY types the
+    // reverse-engineered protocol defines. The T310 rejects anything else
+    // with MISC_CONFIG_ACK status=0x01 (verified on hardware).
+    //
+    // NOT real (do not send): EQ 0x0A, volume 0x0E, spatial 0x10,
+    // wind 0x12, voices 0x13, fit sweep 0x15, ANC depth 0x14.
+    // Realme Link exposes those features, so they exist somewhere — their
+    // wire values are still undiscovered (see README "Protocol discovery").
+    //
     const val MISC_GAME_MODE: Int = 0x06
-    const val MISC_SPATIAL_AUDIO: Int = 0x10
-    const val MISC_WIND_NOISE_REDUCTION: Int = 0x12
-    const val MISC_ENHANCE_VOICES: Int = 0x13
     const val MISC_MULTIPOINT: Int = 0x11
-    const val MISC_FIT_SWEEP: Int = 0x15
-
-    // ANC cycle (sub-level) values for ANC_TYPE_CYCLE_MODE
-    const val ANC_CYCLE_MILD: Int = 0x00
-    const val ANC_CYCLE_MODERATE: Int = 0x01
-    const val ANC_CYCLE_DEEP: Int = 0x02
+    const val MISC_LDAC: Int = 0x18
+    const val MISC_FIND_PHONE: Int = 0x26
 }

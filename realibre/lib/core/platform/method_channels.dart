@@ -112,10 +112,6 @@ class BudChannels {
   Future<void> setNoiseMode(NoiseMode mode) =>
       _methods.invokeMethod('setNoiseMode', {'value': mode.value});
 
-  /// ANC sub-level (Mild/Moderate/Deep) — ANC_CONFIG_SET type 0x14.
-  Future<void> setAncCycleMode(int value) =>
-      _methods.invokeMethod('setAncCycleMode', {'value': value});
-
   Future<void> setGameMode(bool on) =>
       _methods.invokeMethod('setGameMode', {'enabled': on});
 
@@ -125,12 +121,9 @@ class BudChannels {
   /// Make the buds play their locator tone for ~3 seconds.
   Future<void> findDevice() => _methods.invokeMethod('findDevice');
 
-  /// Trigger the earbud fit-sweep command (MISC_CONFIG_SET, type 0x15).
-  Future<void> triggerFitSweep() => _methods.invokeMethod('triggerFitSweep');
-
   /// Generic misc config write: [type, value] via MISC_CONFIG_SET.
-  /// Used for EQ mode, spatial audio, volume enhancer, wind reduction, enhance
-  /// voices, multipoint, game mode, fit sweep.
+  /// Only use types known to the firmware (game mode 0x06, multipoint 0x11,
+  /// LDAC 0x18) — unknown types are rejected with ACK status=0x01.
   Future<void> setMiscConfig(int type, int value) =>
       _methods.invokeMethod('setMiscConfig', {'type': type, 'value': value});
 

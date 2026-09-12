@@ -227,96 +227,53 @@ class BudController extends ChangeNotifier {
   }
 
   Future<void> setAncCycleMode(AncCycleMode mode) async {
-    final prev = _ancCycleMode;
+    // No wire command exists for ANC depth in the reverse-engineered
+    // protocol (AncConfigType = MODE 0x01, TOUCH_CYCLE_MODES 0x02 only).
+    // Optimistic UI state until Realme Link's actual frames are captured.
     _ancCycleMode = mode;
-    notifyListeners();
-    try {
-      await _channels.setAncCycleMode(mode.value);
-      _lastError = null;
-    } on PlatformException catch (e) {
-      _ancCycleMode = prev;
-      _lastError = e.message ?? e.code;
-    }
+    _lastError = null;
     notifyListeners();
   }
 
   Future<void> setEQMode(EQMode mode) async {
-    final prev = _eqMode;
+    // Wire type undiscovered: buds reject unknown misc types (ACK status=1).
+    // Kept as optimistic UI state only until the real value is found.
     _eqMode = mode;
-    notifyListeners();
-    try {
-      await _channels.setMiscConfig(0x0A, mode.value);
-      _lastError = null;
-    } on PlatformException catch (e) {
-      _eqMode = prev;
-      _lastError = e.message ?? e.code;
-    }
+    _lastError = null;
     notifyListeners();
   }
 
   Future<void> setSpatialAudio(bool on) async {
-    final prev = _spatialAudio;
+    // Wire type undiscovered — UI state only.
     _spatialAudio = on;
-    notifyListeners();
-    try {
-      await _channels.setMiscConfig(0x10, on ? 0x01 : 0x00);
-      _lastError = null;
-    } on PlatformException catch (e) {
-      _spatialAudio = prev;
-      _lastError = e.message ?? e.code;
-    }
+    _lastError = null;
     notifyListeners();
   }
 
   Future<void> setVolumeEnhancer(bool on) async {
-    final prev = _volumeEnhancer;
+    // Wire type undiscovered — UI state only.
     _volumeEnhancer = on;
-    notifyListeners();
-    try {
-      await _channels.setMiscConfig(0x0E, on ? 0x01 : 0x00);
-      _lastError = null;
-    } on PlatformException catch (e) {
-      _volumeEnhancer = prev;
-      _lastError = e.message ?? e.code;
-    }
+    _lastError = null;
     notifyListeners();
   }
 
   Future<void> setEnhanceVoices(bool on) async {
-    final prev = _enhanceVoices;
+    // Wire type undiscovered — UI state only.
     _enhanceVoices = on;
-    notifyListeners();
-    try {
-      await _channels.setMiscConfig(0x13, on ? 0x01 : 0x00);
-      _lastError = null;
-    } on PlatformException catch (e) {
-      _enhanceVoices = prev;
-      _lastError = e.message ?? e.code;
-    }
+    _lastError = null;
     notifyListeners();
   }
 
   Future<void> setWindNoiseReduction(bool on) async {
-    final prev = _windNoiseReduction;
+    // Wire type undiscovered — UI state only.
     _windNoiseReduction = on;
-    notifyListeners();
-    try {
-      await _channels.setMiscConfig(0x12, on ? 0x01 : 0x00);
-      _lastError = null;
-    } on PlatformException catch (e) {
-      _windNoiseReduction = prev;
-      _lastError = e.message ?? e.code;
-    }
+    _lastError = null;
     notifyListeners();
   }
 
   Future<void> triggerFitSweep() async {
-    try {
-      await _channels.triggerFitSweep();
-      _lastError = null;
-    } on PlatformException catch (e) {
-      _lastError = e.message ?? e.code;
-    }
+    // Wire type undiscovered (0x15 was rejected on hardware). No-op until found.
+    _lastError = null;
     notifyListeners();
   }
 

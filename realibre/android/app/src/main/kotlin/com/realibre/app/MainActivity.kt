@@ -205,18 +205,6 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                "setAncCycleMode" -> {
-                    val value = (call.argument<Number>("value") ?: 0).toInt()
-                    scope.launch {
-                        try {
-                            RfcommManager.setAncCycleMode(value)
-                            result.success(true)
-                        } catch (e: Exception) {
-                            result.error("ANC_CYCLE_FAILED", e.message, null)
-                        }
-                    }
-                }
-
                 "setMiscConfig" -> {
                     val type = (call.argument<Number>("type") ?: 0).toInt()
                     val value = (call.argument<Number>("value") ?: 0).toInt()
@@ -227,15 +215,6 @@ class MainActivity : FlutterActivity() {
                         } catch (e: Exception) {
                             result.error("MISC_FAILED", e.message, null)
                         }
-                    }
-                }
-
-                "triggerFitSweep" -> scope.launch {
-                    try {
-                        RfcommManager.triggerFitSweep()
-                        result.success(true)
-                    } catch (e: Exception) {
-                        result.error("FIT_FAILED", e.message, null)
                     }
                 }
 

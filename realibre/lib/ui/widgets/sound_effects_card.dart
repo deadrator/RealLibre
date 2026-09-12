@@ -5,6 +5,11 @@ import '../../state/bud_controller.dart';
 
 /// Sound effects card (realme Link style): EQ presets, Spatial Audio,
 /// Volume enhancer, Dynamic audio, Enhance voices, Wind noise reduction.
+///
+/// The toggles are marked "not wired" — Realme Link exposes these features,
+/// but their wire type bytes were rejected by the buds (MISC_CONFIG_ACK
+/// status=0x01) and are not in the reverse-engineered protocol. Selection is
+/// kept as local UI state only; nothing is sent over the wire.
 class SoundEffectsCard extends StatelessWidget {
   const SoundEffectsCard({super.key, required this.controller});
 
@@ -23,6 +28,11 @@ class SoundEffectsCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Sound effects', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(
+              'Selection is remembered locally — wire commands for these are not discovered yet',
+              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
             const SizedBox(height: 12),
             _EQModeTile(
               currentMode: controller.eqMode,

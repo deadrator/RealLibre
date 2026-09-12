@@ -49,26 +49,22 @@ The two tables **must** stay in sync — the Dart enums mirror the Kotlin consta
 
 > NOT 0/1/2 — that was the wrong old spec. `0x08` for ANC is the real value.
 
-### ANC sub-level (`ANC_CONFIG_SET`, type `0x14` — "Noise cancellation" depth)
+### ANC sub-level ("Noise cancellation" depth — Mild / Moderate / Deep)
 
-| Level | Hex | Dart enum (`AncCycleMode`) |
-|---|---|---|
-| Mild | `0x00` | `AncCycleMode.mild` |
-| Moderate | `0x01` | `AncCycleMode.moderate` |
-| Deep | `0x02` | `AncCycleMode.deep` |
+Realme Link offers these levels, but **no wire command for them exists in the reverse-engineered protocol** — `AncConfigType` only defines `MODE (0x01)` and `TOUCH_CYCLE_MODES (0x02)`. An earlier guess (`ANC_CONFIG_SET` type `0x14`) was **rejected on hardware**. The UI shows the chips but marks them as pending discovery.
 
 ### Misc config types (`MISC_CONFIG_SET` / `MISC_CONFIG_REQ`, payload `[type, value]`)
 
-| Feature | Type hex | Values | Dart enum |
-|---|---|---|---|
-| Game mode (low latency) | `0x06` | `0x00` off / `0x01` on | `GameMode` |
-| EQ mode | `0x0A` | `0x00` Default / `0x01` Bass Boost+ / `0x02` Clear Bass / `0x03` Clear Vocals | `EQMode` |
-| Volume enhancer | `0x0E` | `0x00` off / `0x01` on | `VolumeEnhancer` |
-| Spatial Audio (360°) | `0x10` | `0x00` off / `0x01` on | `SpatialAudio` |
-| Dual-device connection (multipoint) | `0x11` | `0x00` off / `0x01` on | `MultipointMode` |
-| Wind noise reduction | `0x12` | `0x00` off / `0x01` on | `WindNoiseReduction` |
-| Enhance voices | `0x13` | `0x00` off / `0x01` on | `EnhanceVoices` |
-| Earbud fit test (fit sweep) | `0x15` | `0x01` trigger | `FitSweepCmd` |
+Confirmed against Gadgetbridge `MiscConfigType.java` — this is the **complete** list the firmware accepts:
+
+| Feature | Type hex | Values | Dart enum | Status |
+|---|---|---|---|---|
+| Game mode (low latency) | `0x06` | `0x00` off / `0x01` on | `GameMode` | ✅ works |
+| Dual-device connection (multipoint) | `0x11` | `0x00` off / `0x01` on | `MultipointMode` | ✅ works |
+| LDAC (hi-res codec) | `0x18` | `0x00` off / `0x01` on | — | available |
+| Find phone (buds ring to find the phone) | `0x26` | `0x00` off / `0x01` on | — | available |
+
+**Not real** (buds reject with `MISC_CONFIG_ACK` status=`0x01` — verified on T310 hardware): EQ `0x0A`, volume enhancer `0x0E`, spatial audio `0x10`, wind noise reduction `0x12`, enhance voices `0x13`, fit sweep `0x15`, ANC depth `0x14`. These features exist in Realme Link, so their wire values are simply undiscovered — see [Protocol discovery](#protocol-discovery-help-wanted).
 
 ### Subscription types (`SUBSCRIPTION_SET`, payload `[count, types…]`)
 
@@ -96,22 +92,36 @@ Battery payload: `[status, count, (index, level)...]` with index `0x01`=L, `0x02
 
 ## Feature flow (UI → wire)
 
-| UI control | Dart call | Platform channel | Native call | Wire frame |
-|---|---|---|---|---|
-| Noise mode buttons | `controller.setNoiseMode(mode)` | `setNoiseMode {value}` | `RfcommManager.setNoiseMode` | `0x0404 [01 01 value]` |
-| Mild/Moderate/Deep chips | `controller.setAncCycleMode(level)` | `setAncCycleMode {value}` | `RfcommManager.setAncCycleMode` | `0x0404 [14 01 value]` |
-| EQ preset dialog | `controller.setEQMode(mode)` | `setMiscConfig {type:0x0A, value}` | `RfcommManager.setMiscConfig` | `0x0403 [0A value]` |
-| Spatial Audio toggle | `controller.setSpatialAudio(on)` | `setMiscConfig {type:0x10, value}` | `RfcommManager.setMiscConfig` | `0x0403 [10 value]` |
-| Volume enhancer toggle | `controller.setVolumeEnhancer(on)` | `setMiscConfig {type:0x0E, value}` | `RfcommManager.setMiscConfig` | `0x0403 [0E value]` |
-| Enhance voices toggle | `controller.setEnhanceVoices(on)` | `setMiscConfig {type:0x13, value}` | `RfcommManager.setMiscConfig` | `0x0403 [13 value]` |
-| Wind reduction toggle | `controller.setWindNoiseReduction(on)` | `setMiscConfig {type:0x12, value}` | `RfcommManager.setMiscConfig` | `0x0403 [12 value]` |
-| Dual-device toggle | `controller.setMultipoint(on)` | `setMultipoint {enabled}` | `RfcommManager.setMultipoint` | `0x0403 [11 value]` |
-| Game mode toggle | `controller.setGameMode(on)` | `setGameMode {enabled}` | `RfcommManager.setGameMode` | `0x0403 [06 value]` |
-| Earbud fit test | `controller.triggerFitSweep()` | `triggerFitSweep` | `RfcommManager.triggerFitSweep` | `0x0403 [15 01]` |
-| Find my buds | `controller.findDevice()` | `findDevice` | `RfcommManager.findDevice` | `0x0400 [01]` then `[00]` |
-| Battery refresh | `controller.refreshBattery()` | `queryBattery` | `RfcommManager.queryBattery` | `0x0106` → `0x8106` |
+✅ = sends real wire frames · 💾 = UI state only (wire value undiscovered)
+
+| UI control | Dart call | Wire frame | Status |
+|---|---|---|---|
+| Noise mode buttons | `controller.setNoiseMode(mode)` | `0x0404 [01 01 value]` | ✅ |
+| Mild/Moderate/Deep chips | `controller.setAncCycleMode(level)` | — (not discovered) | 💾 |
+| EQ preset dialog | `controller.setEQMode(mode)` | — (not discovered) | 💾 |
+| Spatial Audio toggle | `controller.setSpatialAudio(on)` | — (not discovered) | 💾 |
+| Volume enhancer toggle | `controller.setVolumeEnhancer(on)` | — (not discovered) | 💾 |
+| Enhance voices toggle | `controller.setEnhanceVoices(on)` | — (not discovered) | 💾 |
+| Wind reduction toggle | `controller.setWindNoiseReduction(on)` | — (not discovered) | 💾 |
+| Dual-device toggle | `controller.setMultipoint(on)` | `0x0403 [11 value]` | ✅ |
+| Game mode toggle | `controller.setGameMode(on)` | `0x0403 [06 value]` | ✅ |
+| Find my buds | `controller.findDevice()` | `0x0400 [01]` then `[00]` | ✅ |
+| Battery refresh | `controller.refreshBattery()` | `0x0106` → `0x8106` | ✅ |
 
 All writes funnel through `BudChannels` (`method_channels.dart`) → `MainActivity` → `RfcommManager` → the single sanctioned `writeRaw` → `FrameBuilder.build`. No caller can bypass the framing.
+
+## Protocol discovery (help wanted)
+
+Realme Link controls several features whose wire values are **not** in Gadgetbridge's reverse-engineered protocol: EQ presets, spatial audio, volume enhancer, wind noise reduction, enhance voices, earbud fit test, and the ANC depth (Mild/Moderate/Deep). Sending guesses returns `MISC_CONFIG_ACK` with status `0x01` (rejected) and nothing happens.
+
+To discover the real values you would capture the RFCOMM stream while Realme Link toggles each feature, e.g. on a rooted device or with an HCI snoop log:
+
+```bash
+adb shell "btmon -w /sdcard/btmon.log"   # or enable Bluetooth HCI snoop log in developer options
+# toggle each feature in Realme Link, then stop and read the log
+```
+
+The frames to look for: `AA 0A 00 00 03 84 …` (`0x8403` misc config set). Post an issue with the hex dumps and the missing types can be added to `ProtocolConstants.kt` + `bud_enums.dart` (kept 1:1).
 
 ## Building
 

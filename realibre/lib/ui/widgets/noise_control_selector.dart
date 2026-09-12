@@ -51,7 +51,7 @@ class NoiseControlSelector extends StatelessWidget {
               Text('Noise cancellation', style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500)),
               const SizedBox(height: 4),
               Text(
-                ancCycleMode.subtitle,
+                'Level selection coming soon — wire value not discovered yet',
                 style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 12),

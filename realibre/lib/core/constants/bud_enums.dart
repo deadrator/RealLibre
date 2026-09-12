@@ -3,6 +3,17 @@
 /// MIRRORS `ProtocolConstants.kt` 1:1 — keep both in sync. Protocol is the
 /// Oppo/Realme "HeyThings" SPP protocol reverse-engineered by Gadgetbridge
 /// (Freeyourgadget/Gadgetbridge).
+///
+/// CONFIDENCE LEGEND (honesty about what is proven vs guessed):
+/// - [NoiseMode], [AncCycleMode], [GameMode], [MultipointMode] values are
+///   confirmed: either answered by real T310 hardware or present in
+///   Gadgetbridge's shipped enums.
+/// - [EQMode], [SpatialAudio], [VolumeEnhancer], [EnhanceVoices],
+///   [WindNoiseReduction] features EXIST in Realme Link but
+///   their wire type bytes are NOT in the reverse-engineered protocol.
+///   The buds reject unknown misc-config types with ACK status=0x01
+///   (verified on hardware). Enums kept for UI display only until the real
+///   values are discovered — see README "Protocol discovery".
 library;
 
 /// Noise control modes (ANC_CONFIG_SET, type MODE).
@@ -23,8 +34,12 @@ enum NoiseMode {
       NoiseMode.values.firstWhere((m) => m.value == v, orElse: () => NoiseMode.off);
 }
 
-/// ANC sub-level (ANC_CONFIG_SET type 0x14) — Mild / Moderate / Deep.
-/// Only meaningful while ANC mode is active.
+/// ANC sub-level labels (Mild / Moderate / Deep) as shown in Realme Link.
+///
+/// The T310's Realme Link page offers these, but NO wire command for them is
+/// present in the reverse-engineered protocol (AncConfigType only has
+/// MODE=0x01 and TOUCH_CYCLE_MODES=0x02). Shown in the UI for parity with
+/// Realme Link; the selector is disabled until a wire value is discovered.
 enum AncCycleMode {
   mild(0x00, 'Mild', 'Light noise reduction'),
   moderate(0x01, 'Moderate', 'Balanced cancellation'),
@@ -39,7 +54,7 @@ enum AncCycleMode {
       AncCycleMode.values.firstWhere((e) => e.value == v, orElse: () => AncCycleMode.mild);
 }
 
-/// Game (low latency) mode — MISC_CONFIG_SET type 0x06.
+/// Game (low latency) mode — MISC_CONFIG_SET type 0x06. CONFIRMED working.
 enum GameMode {
   off(0x00, 'Off', 'Standard audio latency'),
   on(0x01, 'On', 'Low latency for gaming');
@@ -50,7 +65,7 @@ enum GameMode {
   final String subtitle;
 }
 
-/// Multipoint (dual device connection) — MISC_CONFIG_SET type 0x11.
+/// Multipoint (dual device connection) — MISC_CONFIG_SET type 0x11. CONFIRMED working.
 enum MultipointMode {
   off(0x00, 'Off', 'Single device connection'),
   on(0x01, 'On', 'Connect to 2 devices');
@@ -61,7 +76,8 @@ enum MultipointMode {
   final String subtitle;
 }
 
-/// EQ preset — MISC_CONFIG_SET type 0x0A (picked up by Realme Link EQ screen).
+/// EQ preset labels as shown in Realme Link.
+/// Wire type UNDISCOVERED — UI only; sending does nothing (rejected).
 enum EQMode {
   default_(0x00, 'Default', 'Balanced sound profile'),
   bassBoost(0x01, 'Bass Boost+', 'Deeper low end'),
@@ -77,7 +93,7 @@ enum EQMode {
       EQMode.values.firstWhere((e) => e.value == v, orElse: () => EQMode.default_);
 }
 
-/// Spatial audio (360°) — MISC_CONFIG_SET type 0x10.
+/// Spatial audio (360°) label. Wire type UNDISCOVERED — UI only.
 enum SpatialAudio {
   off(0x00, 'Off', 'Standard stereo'),
   on(0x01, 'On', '360° immersive surround sound');
@@ -88,7 +104,7 @@ enum SpatialAudio {
   final String subtitle;
 }
 
-/// Volume enhancer (gain boost) — MISC_CONFIG_SET type 0x0E.
+/// Volume enhancer label. Wire type UNDISCOVERED — UI only.
 enum VolumeEnhancer {
   off(0x00, 'Off', 'Standard volume'),
   on(0x01, 'On', 'Increased volume level');
@@ -99,7 +115,7 @@ enum VolumeEnhancer {
   final String subtitle;
 }
 
-/// Enhance voices — transparency sub-option (MISC_CONFIG_SET type 0x13).
+/// Enhance voices label. Wire type UNDISCOVERED — UI only.
 enum EnhanceVoices {
   off(0x00, 'Off', 'Standard transparency'),
   on(0x01, 'On', 'Diminish ambient sounds and enhance voices');
@@ -110,22 +126,12 @@ enum EnhanceVoices {
   final String subtitle;
 }
 
-/// Wind noise reduction (MISC_CONFIG_SET type 0x12).
+/// Wind noise reduction label. Wire type UNDISCOVERED — UI only.
 enum WindNoiseReduction {
   off(0x00, 'Off', 'Standard noise handling'),
   on(0x01, 'On', 'Reduce wind noise effectively');
 
   const WindNoiseReduction(this.value, this.label, this.subtitle);
-  final int value;
-  final String label;
-  final String subtitle;
-}
-
-/// Earbud fit test — triggers the fit sweep command (MISC_CONFIG_SET type 0x15).
-enum FitSweepCmd {
-  trigger(0x01, 'Start fit test', 'Check earbud seal quality');
-
-  const FitSweepCmd(this.value, this.label, this.subtitle);
   final int value;
   final String label;
   final String subtitle;

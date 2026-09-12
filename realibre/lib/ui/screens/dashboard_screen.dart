@@ -268,7 +268,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
 }
 
 /// Device features card (realme Link style): multipoint, game mode,
-/// earbud fit test and find-my-buds actions.
+/// and find-my-buds actions.
 class _DeviceFeaturesCard extends StatelessWidget {
   const _DeviceFeaturesCard({required this.controller, required this.connected});
 
@@ -301,13 +301,6 @@ class _DeviceFeaturesCard extends StatelessWidget {
               subtitle: 'Provides a seamless gaming experience with reduced latency.',
               value: controller.gameMode,
               onChanged: connected ? controller.setGameMode : null,
-            ),
-            const Divider(height: 1, indent: 44),
-            _ActionTile(
-              icon: Icons.menu_open_rounded,
-              title: 'Earbud fit test',
-              subtitle: 'Choose ear tips that make a good seal with your ear canals.',
-              onTap: connected ? controller.triggerFitSweep : null,
             ),
             const Divider(height: 1, indent: 44),
             _ActionTile(

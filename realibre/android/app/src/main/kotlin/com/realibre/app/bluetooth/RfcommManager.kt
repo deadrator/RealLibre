@@ -306,19 +306,6 @@ object RfcommManager {
         }
     }
 
-    /** ANC sub-level set: payload [ANC_TYPE_CYCLE_MODE, 0x01, value] (Mild/Moderate/Deep). */
-    suspend fun setAncCycleMode(value: Int) {
-        requireAuthenticated()
-        val payload = byteArrayOf(
-            ProtocolConstants.ANC_TYPE_CYCLE_MODE.toByte(),
-            0x01,
-            value.toByte(),
-        )
-        withContext(ioDispatcher) {
-            writeRaw(FrameBuilder.build(ProtocolConstants.CMD_ANC_CONFIG_SET, FrameBuilder.nextSequence(), payload))
-        }
-    }
-
     /** Game (low latency) mode on/off via MISC_CONFIG_SET. */
     suspend fun setGameMode(enabled: Boolean) {
         requireAuthenticated()
@@ -351,25 +338,11 @@ object RfcommManager {
     }
 
     /**
-     * T310 fit-test / fit-sweep trigger (MISC_CONFIG_SET, type 0x15).
-     * In Realme Link this is mapped to "Earbud fit test" / "Button settings".
-     */
-    suspend fun triggerFitSweep() {
-        requireAuthenticated()
-        withContext(ioDispatcher) {
-            writeRaw(
-                FrameBuilder.build(
-                    ProtocolConstants.CMD_MISC_CONFIG_SET, FrameBuilder.nextSequence(),
-                    byteArrayOf(ProtocolConstants.MISC_FIT_SWEEP.toByte(), 0x01),
-                ),
-            )
-        }
-    }
-
-    /**
-     * Generic misc config writer for settings that use MISC_CONFIG_SET with
-     * [type, value] (EQ mode, spatial audio, volume enhancer, wind reduction,
-     * enhance voices, multipoint, game mode, fit sweep).
+     * Generic misc config writer for MISC_CONFIG_SET with [type, value].
+     *
+     * WARNING: only types listed in [ProtocolConstants] (game mode, multipoint,
+     * LDAC, find phone) are known to the firmware. Unknown types are ACKed
+     * with status=0x01 (rejected) — the buds ignore them silently otherwise.
      */
     suspend fun setMiscConfig(type: Int, value: Int) {
         requireAuthenticated()

@@ -86,11 +86,14 @@ void main() {
       expect(EQMode.clearVocals.value, 0x03);
     });
 
-    test('spatial audio, volume enhancer, enhance voices, wind reduction', () {
+    test('undiscovered features keep display values for UI parity', () {
+      // These features exist in Realme Link but their wire types are not
+      // discovered; values here are display-only and never sent.
       expect(SpatialAudio.on.value, 0x01);
       expect(VolumeEnhancer.on.value, 0x01);
       expect(EnhanceVoices.on.value, 0x01);
       expect(WindNoiseReduction.on.value, 0x01);
+      expect(EQMode.clearBass.value, 0x02);
     });
   });
 
