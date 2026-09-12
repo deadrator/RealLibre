@@ -41,7 +41,7 @@ class BatteryCard extends StatelessWidget {
                     child: Chip(
                       label: const Text('coarse', style: TextStyle(fontSize: 11)),
                       visualDensity: VisualDensity.compact,
-                      backgroundColor: accent.withOpacity(0.15),
+                      backgroundColor: accent.withAlpha(38),
                       side: BorderSide.none,
                     ),
                   ),
@@ -110,7 +110,7 @@ class _Cell extends StatelessWidget {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: ColoredBox(color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.6)),
+                  child: ColoredBox(color: theme.colorScheme.surfaceContainerHighest.withAlpha(153)),
                 ),
                 // Liquid-style animated fill from the bottom.
                 Positioned(
@@ -127,7 +127,7 @@ class _Cell extends StatelessWidget {
                         gradient: LinearGradient(
                           begin: Alignment.bottomCenter,
                           end: Alignment.topCenter,
-                          colors: [accent, accent.withOpacity(0.55)],
+                          colors: [accent, accent.withAlpha(140)],
                         ),
                       ),
                     ),

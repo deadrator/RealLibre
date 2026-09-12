@@ -134,44 +134,58 @@ Push to `main` or open a PR — [.github/workflows/build-apk.yml](.github/workfl
 2. **HFP fallback is coarse** — when RFCOMM is unavailable, HFP `+VDBTY`/`+IPHONEACCEV` only gives ~10% steps; the UI flags this with a "coarse" chip instead of pretending it's precise.
 3. **T310 specifics** — Gadgetbridge has shipped support for T100/T300/Enco Buds2 on this protocol family; the T310 is expected to match but command support (e.g. which misc configs exist) may differ slightly. The in-app wire-debug console (bug icon on the dashboard) shows every frame so mismatches are immediately visible.
 
-## Project structure
+## Project structure — what every file does
 
 ```
 realibre/
-├── .github/workflows/build-apk.yml   # CI: analyze + test + release APK
+├── .github/workflows/build-apk.yml   # CI: analyze + test + release APK on push/PR; Release on v* tags
 ├── android/app/src/main/
-│   ├── AndroidManifest.xml
+│   ├── AndroidManifest.xml           # permissions (BT connect/scan, notifications, FGS) + service/receiver registrations
 │   └── kotlin/com/realibre/app/
-│       ├── MainActivity.kt            # MethodChannel + EventChannel bridge
+│       ├── MainActivity.kt           # Flutter bridge: realibre/methods (commands) + realibre/events (telemetry stream)
 │       ├── bluetooth/
-│       │   ├── ProtocolConstants.kt   # wire protocol constants (Kotlin truth)
-│       │   ├── FrameBuilder.kt        # 0xAA frame build/parse
-│       │   ├── RfcommManager.kt       # single socket owner + init sequence
-│       │   └── BudStateCache.kt       # shared state for tile/notification
+│       │   ├── ProtocolConstants.kt  # single source of truth: MAC, UUID, command codes, type bytes, mode values (Kotlin side)
+│       │   ├── FrameBuilder.kt       # 0xAA frame build/parse + readFrame stream reader + hex logging helper
+│       │   ├── RfcommManager.kt      # owns the single RFCOMM socket: connect, init sequence, reader loop, all commands
+│       │   └── BudStateCache.kt      # StateFlow cache so QS tile/notification/UI share one copy of bud state
 │       ├── service/
-│       │   ├── BatteryNotificationService.kt
-│       │   ├── BluetoothStateReceiver.kt
-│       │   └── NoiseControlTileService.kt
-│       └── pairing/DevicePairer.kt
+│       │   ├── BatteryNotificationService.kt   # foreground notification: live L/R/Case % + ANC-cycle action
+│       │   ├── BluetoothStateReceiver.kt        # Fast Pair battery broadcast + bond-state listener
+│       │   └── NoiseControlTileService.kt       # Quick Settings tile: cycles ANC → Transparency → Off
+│       └── pairing/DevicePairer.kt   # bond flow + precise-battery broadcast for the Fast Pair popup
 ├── lib/
-│   ├── main.dart
+│   ├── main.dart                     # app entry: theme wiring + dashboard/pairing screen switch + auto-connect
 │   ├── core/
-│   │   ├── constants/bud_enums.dart   # mirrors ProtocolConstants.kt 1:1
-│   │   └── platform/method_channels.dart
-│   ├── state/bud_controller.dart      # ChangeNotifier: state + commands
-│   ├── models/bud_telemetry.dart
+│   │   ├── constants/bud_enums.dart  # mirrors ProtocolConstants.kt 1:1: NoiseMode, AncCycleMode, EQMode, etc. (Dart side)
+│   │   └── platform/method_channels.dart  # typed BudChannels wrapper: every method/event the native side speaks
+│   ├── state/bud_controller.dart     # ChangeNotifier: connection state, telemetry, optimistic setters for every feature
+│   ├── models/bud_telemetry.dart     # immutable battery snapshot (L/R/Case + source + charging)
 │   └── ui/
-│       ├── theme/app_theme.dart
-│       ├── screens/{dashboard_screen,pairing_screen}.dart
+│       ├── theme/app_theme.dart      # Material 3 + dynamic color; noise-mode accent colors
+│       ├── screens/
+│       │   ├── dashboard_screen.dart # 1/4-screen status bar + expandable settings + wire-debug console
+│       │   └── pairing_screen.dart   # pulsing earbud + pair-and-connect flow (only when never bonded)
 │       └── widgets/
-│           ├── battery_card.dart
-│           ├── noise_control_selector.dart  # circular modes + ANC sub-level chips
-│           └── sound_effects_card.dart      # EQ/Spatial/Volume/Voices/Wind
-├── test/bud_enums_test.dart
-├── assets/icons/
-├── pubspec.yaml
+│           ├── battery_card.dart           # liquid-fill L/R/Case battery cells (legacy/preview card)
+│           ├── noise_control_selector.dart # circular ANC mode buttons + Mild/Moderate/Deep sub-level chips
+│           └── sound_effects_card.dart     # EQ picker dialog + Spatial/Volume/Voices/Wind toggles
+├── test/bud_enums_test.dart          # wire-value tests + widget smoke tests with stubbed channels
+├── assets/icons/realibre_logo.svg    # app logo source
+├── pubspec.yaml                      # deps: flutter + cupertino_icons + dynamic_color (pinned) — auditable
 └── .gitignore
 ```
+
+### Data flow at a glance
+
+```
+UI widgets → BudController (setters) → BudChannels (method_channels.dart)
+    → MainActivity.kt (when-block dispatch) → RfcommManager.kt → FrameBuilder.build → socket
+
+socket → FrameBuilder.readFrame → RfcommManager reader loop → Incoming events
+    → MainActivity EventChannel → BudChannels.events() stream → BudController._onEvent → notifyListeners → UI
+```
+
+The QS tile and notification bypass Flutter entirely and share state through `BudStateCache`, so they always agree with the app on a single socket.
 
 ## License
 

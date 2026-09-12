@@ -99,8 +99,8 @@ class _PairingScreenState extends State<PairingScreen> with SingleTickerProvider
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                      color: theme.colorScheme.primary.withOpacity(
-                                        0.35 * (1 - ((t + delay) % 1.0) / 0.6),
+                                      color: theme.colorScheme.primary.withAlpha(
+                                        (255 * 0.35 * (1 - ((t + delay) % 1.0) / 0.6)).round(),
                                       ),
                                     ),
                                   ),
@@ -114,7 +114,7 @@ class _PairingScreenState extends State<PairingScreen> with SingleTickerProvider
                         height: 112,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: theme.colorScheme.primary.withOpacity(0.15),
+                          color: theme.colorScheme.primary.withAlpha(38),
                         ),
                         child: Icon(Icons.headphones_rounded, size: 52, color: theme.colorScheme.primary),
                       ),

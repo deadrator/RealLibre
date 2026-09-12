@@ -469,13 +469,8 @@ object RfcommManager {
                             for (j in 2 until frame.payload.size - 1 step 2) {
                                 val type = frame.payload[j].toInt() and 0xFF
                                 val value = frame.payload[j + 1].toInt() and 0xFF
-                                when (type) {
-                                    ProtocolConstants.MISC_GAME_MODE -> {
-                                        _incoming.emit(Incoming.GameModeChanged(value == 1))
-                                    }
-                                    ProtocolConstants.MISC_MULTIPOINT -> {
-                                        _incoming.emit(Incoming.NoiseModeChanged(if (value == 1) 0x01 else 0x00))
-                                    }
+                                if (type == ProtocolConstants.MISC_GAME_MODE) {
+                                    _incoming.emit(Incoming.GameModeChanged(value == 1))
                                 }
                             }
                         }

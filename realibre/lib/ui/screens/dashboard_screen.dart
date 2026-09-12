@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/services.dart';
 
-import '../../core/constants/bud_enums.dart';
 import '../../state/bud_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/noise_control_selector.dart';
@@ -108,7 +107,7 @@ class DashboardScreen extends StatelessWidget {
                     margin: const EdgeInsets.all(16),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Theme.of(sheetContext).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                      color: Theme.of(sheetContext).colorScheme.surfaceContainerHighest.withAlpha(128),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: controller.debugLines.isEmpty
@@ -164,7 +163,7 @@ class _ConnectionBadge extends StatelessWidget {
         label: Text(label, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface)),
         avatar: CircleAvatar(backgroundColor: color, radius: 4),
         visualDensity: VisualDensity.compact,
-        backgroundColor: theme.colorScheme.surfaceContainerHighest.withOpacity(0.6),
+        backgroundColor: theme.colorScheme.surfaceContainerHighest.withAlpha(153),
         side: BorderSide.none,
       ),
     );
@@ -221,38 +220,32 @@ class _DashboardBodyState extends State<_DashboardBody> {
                   crossFadeState:
                       _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
                   firstChild: const SizedBox(width: double.infinity),
-                  secondChild: SingleChildScrollView(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                      child: Column(
-                        children: [
-                          // Noise control card
-                          NoiseControlSelector(
-                            mode: controller.noiseMode,
-                            ancCycleMode: controller.ancCycleMode,
-                            onModeChanged: controller.setNoiseMode,
-                            onCycleModeChanged: controller.setAncCycleMode,
-                            enabled: connected,
+                  secondChild: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    child: Column(
+                      children: [
+                        NoiseControlSelector(
+                          mode: controller.noiseMode,
+                          ancCycleMode: controller.ancCycleMode,
+                          onModeChanged: controller.setNoiseMode,
+                          onCycleModeChanged: controller.setAncCycleMode,
+                          enabled: connected,
+                        ),
+                        const SizedBox(height: 12),
+                        SoundEffectsCard(controller: controller),
+                        const SizedBox(height: 12),
+                        _DeviceFeaturesCard(controller: controller, connected: connected),
+                        const SizedBox(height: 12),
+                        Card(
+                          margin: EdgeInsets.zero,
+                          child: SwitchListTile(
+                            title: const Text('Keep connection in background'),
+                            subtitle: const Text('Stay paired when the app is hidden'),
+                            value: controller.keepAlive,
+                            onChanged: connected ? controller.setKeepAlive : null,
                           ),
-                          const SizedBox(height: 12),
-                          // Sound effects card
-                          SoundEffectsCard(controller: controller),
-                          const SizedBox(height: 12),
-                          // Device features card
-                          _DeviceFeaturesCard(controller: controller, connected: connected),
-                          const SizedBox(height: 12),
-                          // Keep alive in background
-                          Card(
-                            margin: EdgeInsets.zero,
-                            child: SwitchListTile(
-                              title: const Text('Keep connection in background'),
-                              subtitle: const Text('Stay paired when the app is hidden'),
-                              value: controller.keepAlive,
-                              onChanged: connected ? controller.setKeepAlive : null,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -273,7 +266,8 @@ class _DashboardBodyState extends State<_DashboardBody> {
   }
 }
 
-/// Device features card matching realme Link app layout.
+/// Device features card (realme Link style): multipoint, game mode,
+/// earbud fit test and find-my-buds actions.
 class _DeviceFeaturesCard extends StatelessWidget {
   const _DeviceFeaturesCard({required this.controller, required this.connected});
 
@@ -292,33 +286,29 @@ class _DeviceFeaturesCard extends StatelessWidget {
           children: [
             Text('Device features', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
-            // Dual-device connection (Multipoint)
             _FeatureTile(
-              icon: Icons.phonelink_circle_rounded,
+              icon: Icons.devices_rounded,
               title: 'Dual-device connection',
               subtitle: 'Connect 2 devices at the same time and switch between them easily.',
               value: controller.multipoint,
-              onChanged: connected ? (v) => controller.setMultipoint(v) : null,
+              onChanged: connected ? controller.setMultipoint : null,
             ),
-            const Divider(height: 1, color: Colors.divider, indent: 44),
-            // Game mode
+            const Divider(height: 1, indent: 44),
             _FeatureTile(
               icon: Icons.videogame_asset_rounded,
               title: 'Game mode',
               subtitle: 'Provides a seamless gaming experience with reduced latency.',
               value: controller.gameMode,
-              onChanged: connected ? (v) => controller.setGameMode(v) : null,
+              onChanged: connected ? controller.setGameMode : null,
             ),
-            const Divider(height: 1, color: Colors.divider, indent: 44),
-            // Earbud fit test
+            const Divider(height: 1, indent: 44),
             _ActionTile(
               icon: Icons.menu_open_rounded,
               title: 'Earbud fit test',
               subtitle: 'Choose ear tips that make a good seal with your ear canals.',
               onTap: connected ? controller.triggerFitSweep : null,
             ),
-            const Divider(height: 1, color: Colors.divider, indent: 44),
-            // Find my buds
+            const Divider(height: 1, indent: 44),
             _ActionTile(
               icon: Icons.location_searching_rounded,
               title: 'Find my buds',
@@ -369,10 +359,7 @@ class _FeatureTile extends StatelessWidget {
               ],
             ),
           ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-          ),
+          Switch(value: value, onChanged: onChanged),
         ],
       ),
     );
@@ -456,11 +443,11 @@ class _BudStatusBar extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            accent.withOpacity(connected ? 0.22 : 0.08),
-            theme.colorScheme.surfaceContainerHighest.withOpacity(0.6),
+            accent.withAlpha(connected ? 56 : 20),
+            theme.colorScheme.surfaceContainerHighest.withAlpha(153),
           ],
         ),
-        border: Border.all(color: accent.withOpacity(0.35)),
+        border: Border.all(color: accent.withAlpha(89)),
       ),
       child: Row(
         children: [
@@ -478,7 +465,7 @@ class _BudStatusBar extends StatelessWidget {
                 height: 56,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: accent.withOpacity(0.2),
+                  color: accent.withAlpha(51),
                   border: Border.all(color: accent, width: 1.5),
                 ),
                 child: Icon(
@@ -555,7 +542,7 @@ class _MiniBattery extends StatelessWidget {
                 height: 30,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: accent.withOpacity(0.6)),
+                  border: Border.all(color: accent.withAlpha(153)),
                 ),
                 alignment: Alignment.bottomCenter,
                 child: ClipRRect(

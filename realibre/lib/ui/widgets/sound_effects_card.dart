@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../core/constants/bud_enums.dart';
 import '../../state/bud_controller.dart';
 
-/// Sound effects card matching realme Link app layout.
-/// Contains EQ mode, Spatial Audio, Volume enhancer, Dynamic audio.
+/// Sound effects card (realme Link style): EQ presets, Spatial Audio,
+/// Volume enhancer, Dynamic audio, Enhance voices, Wind noise reduction.
 class SoundEffectsCard extends StatelessWidget {
   const SoundEffectsCard({super.key, required this.controller});
 
@@ -25,55 +24,51 @@ class SoundEffectsCard extends StatelessWidget {
           children: [
             Text('Sound effects', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
-            // EQ mode
             _EQModeTile(
               currentMode: controller.eqMode,
               onModeChanged: connected ? controller.setEQMode : null,
             ),
-            const Divider(height: 1, color: Colors.divider, indent: 44),
-            // Spatial Audio
+            const Divider(height: 1, indent: 44),
             _FeatureTile(
               icon: Icons.volume_up_rounded,
               label: 'Spatial Audio',
-              subtitle: 'Brand new 360° immersive surround sound experience, so you feel like you\'re right at the centre of the action.',
+              subtitle: "Brand new 360° immersive surround sound experience, so you feel like you're right at the centre of the action.",
               value: controller.spatialAudio,
-              onChanged: connected ? (v) => controller.setSpatialAudio(v) : null,
+              onChanged: connected ? controller.setSpatialAudio : null,
             ),
-            const Divider(height: 1, color: Colors.divider, indent: 44),
-            // Volume enhancer
+            const Divider(height: 1, indent: 44),
             _FeatureTile(
               icon: Icons.graphic_eq_rounded,
               label: 'Volume enhancer',
               subtitle: 'Further increase the volume of your audio device.',
               value: controller.volumeEnhancer,
-              onChanged: connected ? (v) => controller.setVolumeEnhancer(v) : null,
+              onChanged: connected ? controller.setVolumeEnhancer : null,
             ),
-            const Divider(height: 1, color: Colors.divider, indent: 44),
-            // Dynamic audio
+            const Divider(height: 1, indent: 44),
+            // The protocol has no known misc type for this on T310 yet;
+            // shown disabled until a wire value is confirmed.
             _FeatureTile(
-              icon: Icons.graphic_eq_rounded,
+              icon: Icons.auto_awesome_rounded,
               label: 'Dynamic audio',
-              subtitle: 'Adaptive sound based on your environment.',
+              subtitle: 'Adaptive sound tuned to your environment.',
               value: false,
               onChanged: null,
             ),
-            const Divider(height: 1, color: Colors.divider, indent: 44),
-            // Enhance voices
+            const Divider(height: 1, indent: 44),
             _FeatureTile(
               icon: Icons.person_2_rounded,
               label: 'Enhance voices',
               subtitle: 'Diminish ambient sounds and enhance voices.',
               value: controller.enhanceVoices,
-              onChanged: connected ? (v) => controller.setEnhanceVoices(v) : null,
+              onChanged: connected ? controller.setEnhanceVoices : null,
             ),
-            const Divider(height: 1, color: Colors.divider, indent: 44),
-            // Wind noise reduction
+            const Divider(height: 1, indent: 44),
             _FeatureTile(
               icon: Icons.air_rounded,
               label: 'Wind noise reduction',
               subtitle: 'Effectively reduce noises from the wind when the wind speed picks up.',
               value: controller.windNoiseReduction,
-              onChanged: connected ? (v) => controller.setWindNoiseReduction(v) : null,
+              onChanged: connected ? controller.setWindNoiseReduction : null,
             ),
           ],
         ),
@@ -119,10 +114,7 @@ class _FeatureTile extends StatelessWidget {
               ],
             ),
           ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-          ),
+          Switch(value: value, onChanged: onChanged),
         ],
       ),
     );
@@ -138,6 +130,7 @@ class _EQModeTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final accent = theme.colorScheme.primary;
     final connected = onModeChanged != null;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -154,13 +147,16 @@ class _EQModeTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('EQ mode', style: theme.textTheme.bodyLarge),
-                Text(currentMode.label, style: theme.textTheme.bodySmall?.copyWith(color: Colors.blue)),
+                Text(
+                  currentMode.label,
+                  style: theme.textTheme.bodySmall?.copyWith(color: accent, fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
           Container(
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
+              color: accent.withAlpha(26),
               borderRadius: BorderRadius.circular(20),
             ),
             child: IconButton(
@@ -176,23 +172,26 @@ class _EQModeTile extends StatelessWidget {
   void _showEQDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('EQ Mode'),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('EQ mode'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: EQMode.values.map((mode) => ListTile(
-            title: Text(mode.label),
-            subtitle: Text(mode.subtitle),
-            selected: currentMode == mode,
-            onTap: () {
-              onModeChanged?.call(mode);
-              Navigator.of(context).pop();
-            },
-          )).toList(),
+          children: [
+            for (final EQMode mode in EQMode.values)
+              ListTile(
+                title: Text(mode.label),
+                subtitle: Text(mode.subtitle),
+                selected: currentMode == mode,
+                onTap: () {
+                  onModeChanged?.call(mode);
+                  Navigator.of(dialogContext).pop();
+                },
+              ),
+          ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
         ],

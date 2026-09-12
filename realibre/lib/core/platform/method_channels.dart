@@ -112,8 +112,9 @@ class BudChannels {
   Future<void> setNoiseMode(NoiseMode mode) =>
       _methods.invokeMethod('setNoiseMode', {'value': mode.value});
 
-  Future<void> setAncCycleMode(AncCycleMode mode) =>
-      _methods.invokeMethod('setAncCycleMode', {'value': mode.value});
+  /// ANC sub-level (Mild/Moderate/Deep) — ANC_CONFIG_SET type 0x14.
+  Future<void> setAncCycleMode(int value) =>
+      _methods.invokeMethod('setAncCycleMode', {'value': value});
 
   Future<void> setGameMode(bool on) =>
       _methods.invokeMethod('setGameMode', {'enabled': on});

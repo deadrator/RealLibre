@@ -231,7 +231,7 @@ class BudController extends ChangeNotifier {
     _ancCycleMode = mode;
     notifyListeners();
     try {
-      await _channels.setAncCycleMode(mode);
+      await _channels.setAncCycleMode(mode.value);
       _lastError = null;
     } on PlatformException catch (e) {
       _ancCycleMode = prev;
@@ -245,7 +245,7 @@ class BudController extends ChangeNotifier {
     _eqMode = mode;
     notifyListeners();
     try {
-      await _channels.setMiscConfig(EQMode.default_.value, mode.value);
+      await _channels.setMiscConfig(0x0A, mode.value);
       _lastError = null;
     } on PlatformException catch (e) {
       _eqMode = prev;
@@ -259,10 +259,7 @@ class BudController extends ChangeNotifier {
     _spatialAudio = on;
     notifyListeners();
     try {
-      await _channels.setMiscConfig(
-        SpatialAudio.on.value,
-        on ? SpatialAudio.on.value : SpatialAudio.off.value,
-      );
+      await _channels.setMiscConfig(0x10, on ? 0x01 : 0x00);
       _lastError = null;
     } on PlatformException catch (e) {
       _spatialAudio = prev;
@@ -276,10 +273,7 @@ class BudController extends ChangeNotifier {
     _volumeEnhancer = on;
     notifyListeners();
     try {
-      await _channels.setMiscConfig(
-        VolumeEnhancer.on.value,
-        on ? VolumeEnhancer.on.value : VolumeEnhancer.off.value,
-      );
+      await _channels.setMiscConfig(0x0E, on ? 0x01 : 0x00);
       _lastError = null;
     } on PlatformException catch (e) {
       _volumeEnhancer = prev;
@@ -293,10 +287,7 @@ class BudController extends ChangeNotifier {
     _enhanceVoices = on;
     notifyListeners();
     try {
-      await _channels.setMiscConfig(
-        EnhanceVoices.on.value,
-        on ? EnhanceVoices.on.value : EnhanceVoices.off.value,
-      );
+      await _channels.setMiscConfig(0x13, on ? 0x01 : 0x00);
       _lastError = null;
     } on PlatformException catch (e) {
       _enhanceVoices = prev;
@@ -310,10 +301,7 @@ class BudController extends ChangeNotifier {
     _windNoiseReduction = on;
     notifyListeners();
     try {
-      await _channels.setMiscConfig(
-        WindNoiseReduction.on.value,
-        on ? WindNoiseReduction.on.value : WindNoiseReduction.off.value,
-      );
+      await _channels.setMiscConfig(0x12, on ? 0x01 : 0x00);
       _lastError = null;
     } on PlatformException catch (e) {
       _windNoiseReduction = prev;
